@@ -11,7 +11,7 @@ Contract:
   - tone_freq is the CW tone frequency in Hz (typically 500-800)
 """
 import numpy as np
-from scipy.signal import butter, sosfilt
+from scipy.signal import butter, sosfiltfilt
 
 
 def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
@@ -19,11 +19,12 @@ def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
     """
     Extract multi-channel soft envelope from CW audio.
 
-    ch0: IQ magnitude, N2/fc=20 Hz (group delay ~11 ms)
-    ch1: STFT spectral contrast, 25 ms window (effective delay ~12 ms)
-         ch1 was formerly IQ phase coherence (AUC 0.6265) which was hurting
-         the HMM due to poor discriminability and correlation with ch0.
-         Using only the two best channels (IQ amplitude + STFT contrast).
+    ch0: IQ magnitude, N2/fc=20 Hz — zero-phase (sosfiltfilt).
+         Zero group delay + ~16 Hz effective BW (vs ~30 Hz causal).
+         Offline-only; non-causal forward-backward filter.
+    ch1: STFT spectral contrast, centered 25 ms window.
+         Zero effective delay (frame centered on current sample).
+         Both channels: zero delay → timing errors approach zero for high SNR.
     """
     n_out = len(audio) // 16
     n = len(audio)
@@ -33,18 +34,20 @@ def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
     Q = audio * -np.sin(2 * np.pi * tone_freq * t)
 
     sos_lp = butter(2, 20, btype='low', fs=sample_rate, output='sos')
-    I_filt = sosfilt(sos_lp, I)
-    Q_filt = sosfilt(sos_lp, Q)
+    I_filt = sosfiltfilt(sos_lp, I)   # zero-phase: no group delay, ~16 Hz eff. BW
+    Q_filt = sosfiltfilt(sos_lp, Q)
 
     # === Channel 0: IQ Envelope ===
     mag = np.sqrt(I_filt**2 + Q_filt**2)
     ch0 = _decimate(mag, 16)[:n_out]
     ch0 = _soft_normalize(ch0)
 
-    # === Channel 1: STFT Spectral Contrast (25 ms window) ===
+    # === Channel 1: STFT Spectral Contrast (centered 25 ms window) ===
+    # Centered framing: frame k uses audio[k*16-100 : k*16+100], zero delay.
     win_stft = 200  # 25 ms at 8 kHz; bin_hz = 40 Hz
+    half_win = win_stft // 2  # 100
     hann = np.hanning(win_stft)
-    audio_pad = np.concatenate([np.zeros(win_stft), audio])
+    audio_pad = np.concatenate([np.zeros(half_win), audio, np.zeros(half_win)])
     frames = np.lib.stride_tricks.as_strided(
         audio_pad,
         shape=(n_out, win_stft),
