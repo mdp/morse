@@ -11,7 +11,7 @@ Contract:
   - tone_freq is the CW tone frequency in Hz (typically 500-800)
 """
 import numpy as np
-from scipy.signal import butter, sosfilt, hilbert
+from scipy.signal import butter, sosfilt
 
 
 def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
@@ -19,50 +19,45 @@ def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
     """
     Extract multi-channel soft envelope from CW audio.
 
-    Current: 2 channels
-      ch0: IQ magnitude envelope (40 Hz LPF)
-      ch1: Phase coherence (50 ms sliding window)
+    ch0: IQ magnitude envelope (30 Hz LPF) — narrower than baseline for better SNR
+    ch1: Phase coherence (50 ms sliding window, vectorized)
     """
     n_out = len(audio) // 16  # 500 Hz output
 
-    # === Channel 0: IQ Envelope ===
+    # IQ downconversion
     t = np.arange(len(audio)) / sample_rate
     I = audio * np.cos(2 * np.pi * tone_freq * t)
     Q = audio * -np.sin(2 * np.pi * tone_freq * t)
 
-    # Lowpass at 40 Hz
-    sos_lp = butter(6, 40, btype='low', fs=sample_rate, output='sos')
+    # === Channel 0: IQ Envelope (30 Hz LPF — narrower for noise rejection) ===
+    sos_lp = butter(6, 30, btype='low', fs=sample_rate, output='sos')
     I_filt = sosfilt(sos_lp, I)
     Q_filt = sosfilt(sos_lp, Q)
-
     mag = np.sqrt(I_filt**2 + Q_filt**2)
 
-    # Decimate to 500 Hz via strided mean
     ch0 = _decimate(mag, 16)[:n_out]
     ch0 = _soft_normalize(ch0)
 
-    # === Channel 1: Phase Coherence ===
-    # Tighter bandpass for phase measurement
+    # === Channel 1: Phase Coherence (vectorized, no Python loop) ===
+    # Circular mean resultant R over 50ms window (400 samples at 8kHz)
     sos_lp2 = butter(6, 60, btype='low', fs=sample_rate, output='sos')
     I2 = sosfilt(sos_lp2, I)
     Q2 = sosfilt(sos_lp2, Q)
-
     phase = np.arctan2(Q2, I2)
 
-    # Circular mean resultant over 50ms window (400 samples at 8kHz)
-    win = 400
+    win = 400  # 50ms at 8kHz
     cos_phase = np.cos(phase)
     sin_phase = np.sin(phase)
 
-    # Cumulative sum for fast sliding window
-    cs_cos = np.cumsum(np.insert(cos_phase, 0, 0))
-    cs_sin = np.cumsum(np.insert(sin_phase, 0, 0))
+    cs_cos = np.concatenate([[0.0], np.cumsum(cos_phase)])
+    cs_sin = np.concatenate([[0.0], np.cumsum(sin_phase)])
 
-    R = np.zeros(len(phase))
-    for i in range(win, len(phase)):
-        mc = (cs_cos[i+1] - cs_cos[i+1-win]) / win
-        ms = (cs_sin[i+1] - cs_sin[i+1-win]) / win
-        R[i] = np.sqrt(mc**2 + ms**2)
+    n = len(phase)
+    R = np.zeros(n)
+    idx = np.arange(win, n)
+    mc = (cs_cos[idx + 1] - cs_cos[idx + 1 - win]) / win
+    ms = (cs_sin[idx + 1] - cs_sin[idx + 1 - win]) / win
+    R[idx] = np.sqrt(mc**2 + ms**2)
 
     ch1 = _decimate(R, 16)[:n_out]
     ch1 = _soft_normalize(ch1)
