@@ -60,9 +60,9 @@ def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
     tone_bin = max(2, min(pwr.shape[1] - 3, tone_bin))
     tone_power = pwr[:, tone_bin - 1] + pwr[:, tone_bin] + pwr[:, tone_bin + 1]
 
-    lo = list(range(max(1, tone_bin - 12), max(1, tone_bin - 4)))
+    lo = list(range(max(1, tone_bin - 16), max(1, tone_bin - 4)))
     hi = list(range(min(tone_bin + 5, pwr.shape[1] - 1),
-                    min(tone_bin + 13, pwr.shape[1] - 1)))
+                    min(tone_bin + 17, pwr.shape[1] - 1)))
     bg_bins = np.array(lo + hi, dtype=int)
     if len(bg_bins) == 0:
         bg_bins = np.array([max(1, tone_bin - 5),
