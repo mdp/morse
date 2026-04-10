@@ -69,7 +69,7 @@ def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
                             min(pwr.shape[1] - 2, tone_bin + 5)], dtype=int)
 
     bg_power = np.median(pwr[:, bg_bins], axis=1) + 1e-10
-    ch1 = _soft_normalize(((tone_power / bg_power) ** (1/3))[:n_out])
+    ch1 = _soft_normalize(((tone_power / bg_power) ** 0.60)[:n_out])
 
     # Compute 48ms box-filter IQ (used for ch2 and ch3).
     N_dit = int(round(0.048 * sample_rate))  # 384 at 8kHz
