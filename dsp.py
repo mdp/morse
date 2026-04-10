@@ -70,7 +70,7 @@ def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
 
     bg_power_frame = np.median(pwr[:, bg_bins], axis=1) + 1e-10
     from scipy.ndimage import median_filter as _mf
-    bg_power_smooth = _mf(bg_power_frame, size=375)  # 750ms running median
+    bg_power_smooth = _mf(bg_power_frame, size=250)  # 500ms running median
     bg_power = np.maximum(bg_power_frame, bg_power_smooth)
     ch1 = _soft_normalize(((tone_power / bg_power) ** 0.60)[:n_out])
 
