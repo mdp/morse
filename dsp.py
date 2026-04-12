@@ -17,12 +17,10 @@ from scipy.signal import butter, sosfiltfilt
 def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
                      tone_freq: float = 600.0) -> np.ndarray:
     """
-    2-channel baseline: zero-phase IQ + STFT spectral contrast.
+    Single-channel IQ magnitude envelope.
 
-    ch0: IQ magnitude, 15 Hz zero-phase Butterworth (sosfiltfilt).
+    ch0: IQ magnitude, 35 Hz zero-phase Butterworth (sosfiltfilt).
          No group delay — edges land at the correct frame.
-    ch1: STFT spectral contrast, centered 40 ms window.
-         Zero effective delay (frame centered on current sample).
     """
     n_out = len(audio) // 16
     n = len(audio)
@@ -32,48 +30,13 @@ def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
     I = audio * np.cos(2 * np.pi * tone_freq * t)
     Q = audio * -np.sin(2 * np.pi * tone_freq * t)
 
-    # ch0: zero-phase IQ envelope
+    # ch0: zero-phase IQ envelope, 1st-order 35Hz Butterworth
     sos = butter(1, 35, btype="low", fs=sample_rate, output="sos")
     mag = np.sqrt(sosfiltfilt(sos, I) ** 2 + sosfiltfilt(sos, Q) ** 2)
     ch0 = _decimate(mag, 16)[:n_out]
     ch0 = _normalize(ch0, noise_win_ms=1000)
 
-    # ch1: STFT spectral contrast, centered 20 ms window (160 samples at 8 kHz)
-    # 50 Hz/bin — all standard CW tone freqs (multiples of 50) land on exact bins
-    # 20ms < dit at 45 WPM (27ms) → no temporal smearing for fast CW
-    win = 160
-    half = win // 2
-    hann = np.hanning(win)
-    pad = np.concatenate([np.zeros(half), audio, np.zeros(half)])
-    frames = np.lib.stride_tricks.as_strided(
-        pad,
-        shape=(n_out, win),
-        strides=(pad.strides[0] * 16, pad.strides[0]),
-    ).copy()
-    pwr = np.abs(np.fft.rfft(frames * hann, axis=1)) ** 2
-
-    bin_hz = sample_rate / win  # 25 Hz/bin
-    tb = int(round(tone_freq / bin_hz))
-    tb = max(2, min(pwr.shape[1] - 3, tb))
-    tone_pwr = pwr[:, tb]
-
-    lo = list(range(max(1, tb - 16), max(1, tb - 4)))
-    hi = list(range(min(tb + 5, pwr.shape[1] - 1), min(tb + 17, pwr.shape[1] - 1)))
-    bg_bins = np.array(lo + hi, dtype=int)
-    if len(bg_bins) == 0:
-        bg_bins = np.array([max(1, tb - 5), min(pwr.shape[1] - 2, tb + 5)], dtype=int)
-
-    bg = np.median(pwr[:, bg_bins], axis=1) + 1e-10
-    # Stabilize bg: prevent momentary dips from causing false ratio spikes.
-    # Running median over 500ms (250 frames at 500Hz) smooths transients.
-    from scipy.ndimage import median_filter
-    bg_smooth = median_filter(bg, size=250)
-    bg = np.maximum(bg, bg_smooth)
-    ch1 = _normalize((tone_pwr / bg) ** 0.8)
-
-    # Weighted fusion: ch0 (higher AUC) gets more weight than ch1
-    fused = ch0
-    return fused[:, np.newaxis].astype(np.float32)
+    return ch0[:, np.newaxis].astype(np.float32)
 
 
 def _decimate(x: np.ndarray, factor: int) -> np.ndarray:
