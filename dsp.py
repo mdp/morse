@@ -34,6 +34,8 @@ def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
     sos = butter(1, 22, btype="low", fs=sample_rate, output="sos")
     mag = np.sqrt(sosfiltfilt(sos, I) ** 2 + sosfiltfilt(sos, Q) ** 2)
     ch0 = _decimate(mag, 16)[:n_out]
+    # Power compression expands low-amplitude region for better noise-floor separation.
+    ch0 = ch0 ** 0.69
     ch0 = _normalize(ch0)
     # Sigmoid sharpening: push values toward 0/1 for sharper edges.
     # gamma=37 is empirically optimal: output is near-binary around 0.5.
@@ -60,7 +62,7 @@ def _normalize(env: np.ndarray) -> np.ndarray:
     Global 17th percentile as noise floor is more stable than a running window:
     less clip at very_low SNR, better separation between tone-on and tone-off.
     """
-    noise_floor = np.percentile(env, 17)
-    signal_level = np.percentile(env, 83)
+    noise_floor = np.percentile(env, 22)
+    signal_level = np.percentile(env, 84)
     denom = max(signal_level - noise_floor, 1e-10)
     return np.clip((env - noise_floor) / denom, 0.0, 1.0)
