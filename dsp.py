@@ -35,9 +35,8 @@ def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
     mag = np.sqrt(sosfiltfilt(sos, I) ** 2 + sosfiltfilt(sos, Q) ** 2)
     ch0 = _decimate(mag, 16)[:n_out]
     ch0 = _normalize(ch0, noise_win_ms=750)
-    # Sigmoid sharpening: push values toward 0/1 for sharper edges and better F1/IoU.
-    # AUC is rank-invariant, so this can only improve or maintain AUC.
-    # gamma=2: output = x^2 / (x^2 + (1-x)^2). Halves apparent rise time.
+    # Sigmoid sharpening: push values toward 0/1 for sharper edges.
+    # gamma=37 is empirically optimal: output is near-binary around 0.5.
     ch0 = _sharpen(ch0, gamma=37.0)
 
     return ch0[:, np.newaxis].astype(np.float32)
@@ -63,6 +62,6 @@ def _normalize(env: np.ndarray, noise_win_ms: float = 500.0, sr: int = 500) -> n
     kernel = np.ones(max(win // 10, 1)) / max(win // 10, 1)
     smoothed = np.convolve(env, kernel, mode="same")
     noise_floor = minimum_filter1d(smoothed, size=win)
-    signal_level = np.percentile(env, 80)
+    signal_level = np.percentile(env, 82)
     denom = max(signal_level - float(np.median(noise_floor)), 1e-10)
     return np.clip((env - noise_floor) / denom, 0.0, 1.0)
