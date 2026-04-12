@@ -19,7 +19,7 @@ def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
     """
     Single-channel IQ magnitude envelope.
 
-    ch0: IQ magnitude, 35 Hz zero-phase Butterworth (sosfiltfilt).
+    ch0: IQ magnitude, 22 Hz zero-phase Butterworth (sosfiltfilt).
          No group delay — edges land at the correct frame.
     """
     n_out = len(audio) // 16
@@ -30,11 +30,11 @@ def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
     I = audio * np.cos(2 * np.pi * tone_freq * t)
     Q = audio * -np.sin(2 * np.pi * tone_freq * t)
 
-    # ch0: zero-phase IQ envelope, 1st-order 35Hz Butterworth
+    # ch0: zero-phase IQ envelope, 1st-order 22Hz Butterworth
     sos = butter(1, 22, btype="low", fs=sample_rate, output="sos")
     mag = np.sqrt(sosfiltfilt(sos, I) ** 2 + sosfiltfilt(sos, Q) ** 2)
     ch0 = _decimate(mag, 16)[:n_out]
-    ch0 = _normalize(ch0, noise_win_ms=750)
+    ch0 = _normalize(ch0)
     # Sigmoid sharpening: push values toward 0/1 for sharper edges.
     # gamma=37 is empirically optimal: output is near-binary around 0.5.
     ch0 = _sharpen(ch0, gamma=37.0)
@@ -54,14 +54,13 @@ def _sharpen(x: np.ndarray, gamma: float = 2.0) -> np.ndarray:
     return xg / (xg + (1.0 - x) ** gamma + 1e-12)
 
 
-def _normalize(env: np.ndarray, noise_win_ms: float = 500.0, sr: int = 500) -> np.ndarray:
-    """Normalize envelope to [0, 1] using running noise floor estimate."""
-    from scipy.ndimage import percentile_filter
+def _normalize(env: np.ndarray) -> np.ndarray:
+    """Normalize envelope to [0, 1] using global percentile noise floor.
 
-    win = max(int(noise_win_ms * sr / 1000), 1)
-    kernel = np.ones(max(win // 23, 1)) / max(win // 23, 1)
-    smoothed = np.convolve(env, kernel, mode="same")
-    noise_floor = percentile_filter(smoothed, percentile=3, size=win)
+    Global 17th percentile as noise floor is more stable than a running window:
+    less clip at very_low SNR, better separation between tone-on and tone-off.
+    """
+    noise_floor = np.percentile(env, 17)
     signal_level = np.percentile(env, 83)
-    denom = max(signal_level - float(np.median(noise_floor)), 1e-10)
+    denom = max(signal_level - noise_floor, 1e-10)
     return np.clip((env - noise_floor) / denom, 0.0, 1.0)
