@@ -56,12 +56,12 @@ def _sharpen(x: np.ndarray, gamma: float = 2.0) -> np.ndarray:
 
 def _normalize(env: np.ndarray, noise_win_ms: float = 500.0, sr: int = 500) -> np.ndarray:
     """Normalize envelope to [0, 1] using running noise floor estimate."""
-    from scipy.ndimage import minimum_filter1d
+    from scipy.ndimage import percentile_filter
 
     win = max(int(noise_win_ms * sr / 1000), 1)
     kernel = np.ones(max(win // 23, 1)) / max(win // 23, 1)
     smoothed = np.convolve(env, kernel, mode="same")
-    noise_floor = minimum_filter1d(smoothed, size=win)
+    noise_floor = percentile_filter(smoothed, percentile=3, size=win)
     signal_level = np.percentile(env, 83)
     denom = max(signal_level - float(np.median(noise_floor)), 1e-10)
     return np.clip((env - noise_floor) / denom, 0.0, 1.0)
