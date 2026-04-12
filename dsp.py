@@ -38,7 +38,7 @@ def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
     # Sigmoid sharpening: push values toward 0/1 for sharper edges and better F1/IoU.
     # AUC is rank-invariant, so this can only improve or maintain AUC.
     # gamma=2: output = x^2 / (x^2 + (1-x)^2). Halves apparent rise time.
-    ch0 = _sharpen(ch0, gamma=10.0)
+    ch0 = _sharpen(ch0, gamma=37.0)
 
     return ch0[:, np.newaxis].astype(np.float32)
 
