@@ -1,7 +1,7 @@
 """
 CW DSP envelope extraction — 3-channel orthogonal physics.
 
-ch0: amplitude       — ±27 Hz bandpass + Hilbert + pct-norm + gentle sharpen
+ch0: amplitude       — ±25 Hz bandpass + Hilbert + pct-norm + gentle sharpen
 ch1: TKEO            — Teager-Kaiser energy on bandpassed signal (zero-delay)
 ch2: matched filter  — 48 ms coherent IQ box — narrow BW for low-SNR
 
@@ -17,6 +17,7 @@ from scipy.signal import butter, hilbert, sosfiltfilt
 
 
 _BP_BW_HZ = 25.0          # ch0+ch2 bandpass half-width (narrow → low-SNR)
+_BP_ORDER = 1
 _TKEO_SMOOTH_MS = 30.0    # ch1: TKEO smoothing window
 _MATCHED_MS = 48.0        # ch2: dit-scale integration (BW~20 Hz)
 _SHARPEN_GAMMA = 35.0     # soft — preserves gradient for CWNet
@@ -31,7 +32,7 @@ def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
     # ±BW_HZ bandpass, shared by ch0 (via Hilbert) and ch1 (TKEO)
     lo = max(tone_freq - _BP_BW_HZ, 1.0)
     hi = min(tone_freq + _BP_BW_HZ, sample_rate / 2 - 1)
-    sos_bp = butter(1, [lo, hi], btype="bandpass", fs=sample_rate, output="sos")
+    sos_bp = butter(_BP_ORDER, [lo, hi], btype="bandpass", fs=sample_rate, output="sos")
     bp = sosfiltfilt(sos_bp, audio64)
 
     ch0 = _ch0_amplitude(bp, n_out)
@@ -46,7 +47,8 @@ def _ch0_amplitude(bp: np.ndarray, n_out: int) -> np.ndarray:
     env = _decimate(mag, 16)[:n_out]
     env = _normalize(env)
     env = np.clip((env - 0.09) / 0.76, 0.0, 1.0)
-    return _sharpen(env, _SHARPEN_GAMMA)
+    env = _sharpen(env, 8.0)
+    return _sharpen(env, 8.0)
 
 
 def _tkeo(bp: np.ndarray, sample_rate: int, n_out: int) -> np.ndarray:
