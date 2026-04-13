@@ -1,9 +1,9 @@
 """
 CW DSP envelope extraction — 3-channel orthogonal physics.
 
-ch0: amplitude       — ±25 Hz bandpass + Hilbert + pct-norm + gentle sharpen
+ch0: amplitude       — ±30 Hz bandpass + Hilbert + pct-norm + gentle sharpen
 ch1: freq-stability  — rolling variance of inst-freq (20 ms), inverted (~16 ms rise)
-ch2: periodicity     — sliding autocorr at carrier lag (40 ms), bias-corrected
+ch2: matched filter  — coherent IQ box integration (40 ms) — narrow BW for low-SNR
 
 Contract:
   extract_envelope(audio, sample_rate, tone_freq) → (T, C) float32 in [0, 1]
@@ -19,7 +19,7 @@ from scipy.signal import butter, hilbert, sosfiltfilt
 _BP_BW_HZ = 30.0          # ch0+ch2 bandpass half-width (narrow → low-SNR)
 _LP_WIDE_HZ = 75.0        # ch1 baseband LPF (wide so noise stays random)
 _INSTFREQ_WIN_MS = 20.0
-_ACORR_WIN_MS = 40.0
+_MATCHED_MS = 40.0
 _SHARPEN_GAMMA = 4.0      # soft — preserves gradient for CWNet
 
 
@@ -37,7 +37,7 @@ def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
 
     ch0 = _ch0_amplitude(bp, n_out)
     ch1 = _ch1_instfreq(audio64, sample_rate, tone_freq, n_out)
-    ch2 = _ch2_autocorr(bp, sample_rate, tone_freq, n_out)
+    ch2 = _ch2_matched(audio64, sample_rate, tone_freq, n_out)
 
     return np.stack([ch0, ch1, ch2], axis=1).astype(np.float32)
 
@@ -70,31 +70,20 @@ def _ch1_instfreq(audio: np.ndarray, sample_rate: int, tone_freq: float,
     return _normalize(env)
 
 
-def _ch2_autocorr(bp: np.ndarray, sample_rate: int, tone_freq: float,
-                  n_out: int) -> np.ndarray:
-    n = len(bp)
-    lag = max(1, round(sample_rate / tone_freq))
-    win = max(lag * 2, int(_ACORR_WIN_MS / 1000.0 * sample_rate))
-
-    xn, xl = bp[: n - lag], bp[lag:]
-    sc = uniform_filter1d(xn * xl, size=win, mode="reflect")
-    sa = uniform_filter1d(xn ** 2, size=win, mode="reflect")
-    sb = uniform_filter1d(xl ** 2, size=win, mode="reflect")
-    denom = np.sqrt(sa * sb)
-    acorr = sc / np.where(denom < 1e-12, 1e-12, denom)
-
-    # Noise baseline: bandpassed noise has autocorr ≈ cos(2π f0 L/sr) · sinc(2 bw/f0).
-    # Subtract so the noise floor centers near 0 rather than ~0.9.
-    cos_at_lag = math.cos(2.0 * math.pi * tone_freq * lag / sample_rate)
-    noise_r = cos_at_lag * float(np.sinc(2.0 * _BP_BW_HZ / tone_freq))
-    scale = max(cos_at_lag - noise_r, 1e-3)
-    env_bc = np.maximum(acorr - noise_r, 0.0) / scale
-
-    full = np.empty(n, dtype=np.float64)
-    full[: n - lag] = env_bc
-    full[n - lag:] = float(env_bc[-1]) if len(env_bc) else 0.0
-
-    env = _decimate(full, 16)[:n_out]
+def _ch2_matched(audio: np.ndarray, sample_rate: int, tone_freq: float,
+                 n_out: int) -> np.ndarray:
+    # Coherent matched filter: IQ-demodulate, integrate both arms over a
+    # dit-duration box, then take magnitude. Box of T=40ms has equivalent
+    # noise BW ≈ 1/T = 25 Hz — narrower than ch0's ±30 Hz bandpass, so this
+    # channel has higher SNR (wins at very_low) but slower edges (fails at fast).
+    t = np.arange(len(audio)) / sample_rate
+    I = audio * np.cos(2.0 * np.pi * tone_freq * t)
+    Q = audio * (-np.sin(2.0 * np.pi * tone_freq * t))
+    win = max(3, int(_MATCHED_MS / 1000.0 * sample_rate))
+    I_mf = uniform_filter1d(I, size=win, mode="reflect")
+    Q_mf = uniform_filter1d(Q, size=win, mode="reflect")
+    mag = np.sqrt(I_mf ** 2 + Q_mf ** 2)
+    env = _decimate(mag, 16)[:n_out]
     return _normalize(env)
 
 
