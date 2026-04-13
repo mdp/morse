@@ -1,7 +1,7 @@
 """
 CW DSP envelope extraction — 3-channel orthogonal physics.
 
-ch0: amplitude       — ±30 Hz bandpass + Hilbert + pct-norm + gentle sharpen
+ch0: amplitude       — ±27 Hz bandpass + Hilbert + pct-norm + gentle sharpen
 ch1: TKEO            — Teager-Kaiser energy on bandpassed signal (zero-delay)
 ch2: matched filter  — 48 ms coherent IQ box — narrow BW for low-SNR
 
@@ -28,7 +28,7 @@ def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
     n_out = n // 16
     audio64 = audio.astype(np.float64)
 
-    # ±25 Hz bandpass, shared by ch0 (via Hilbert) and ch2 (autocorr)
+    # ±BW_HZ bandpass, shared by ch0 (via Hilbert) and ch1 (TKEO)
     lo = max(tone_freq - _BP_BW_HZ, 1.0)
     hi = min(tone_freq + _BP_BW_HZ, sample_rate / 2 - 1)
     sos_bp = butter(1, [lo, hi], btype="bandpass", fs=sample_rate, output="sos")
@@ -45,7 +45,7 @@ def _ch0_amplitude(bp: np.ndarray, n_out: int) -> np.ndarray:
     mag = np.abs(hilbert(bp))
     env = _decimate(mag, 16)[:n_out]
     env = _normalize(env)
-    env = np.clip((env - 0.15) / 0.7, 0.0, 1.0)  # soft threshold
+    env = np.clip((env - 0.09) / 0.76, 0.0, 1.0)
     return _sharpen(env, _SHARPEN_GAMMA)
 
 
@@ -84,9 +84,9 @@ def _decimate(x: np.ndarray, factor: int) -> np.ndarray:
     return x[:n].reshape(-1, factor).mean(axis=1)
 
 
-def _normalize(env: np.ndarray) -> np.ndarray:
-    lo = float(np.percentile(env, 10))
-    hi = float(np.percentile(env, 85))
+def _normalize(env: np.ndarray, lo_pct: float = 10.0, hi_pct: float = 85.0) -> np.ndarray:
+    lo = float(np.percentile(env, lo_pct))
+    hi = float(np.percentile(env, hi_pct))
     denom = max(hi - lo, 1e-10)
     return np.clip((env - lo) / denom, 0.0, 1.0)
 
