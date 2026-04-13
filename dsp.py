@@ -10,7 +10,7 @@ Contract:
   T = len(audio) // 16. Dependencies: numpy, scipy only.
 """
 import numpy as np
-from scipy.ndimage import uniform_filter1d
+from scipy.ndimage import gaussian_filter1d, uniform_filter1d
 from scipy.signal import butter, hilbert, sosfiltfilt
 
 
@@ -41,6 +41,9 @@ def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
 
 def _ch0_amplitude(bp: np.ndarray, n_out: int) -> np.ndarray:
     mag = np.abs(hilbert(bp))
+    # Short Gaussian pre-smooth de-ripples the envelope below the decimation
+    # window without introducing edge bias (symmetric kernel).
+    mag = gaussian_filter1d(mag, sigma=4.0, mode="reflect")
     env = _decimate(mag, 16)[:n_out]
     env = _normalize(env)
     env = np.clip((env - 0.05) / 0.76, 0.0, 1.0)
