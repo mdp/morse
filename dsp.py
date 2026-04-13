@@ -11,37 +11,55 @@ Contract:
   - Dependencies: numpy, scipy only
 """
 import numpy as np
-from scipy.signal import butter, sosfiltfilt
+from scipy.signal import butter, sosfiltfilt, hilbert
 
 
 def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
                      tone_freq: float = 600.0) -> np.ndarray:
     """
-    Single-channel IQ magnitude envelope.
+    Two-channel envelope.
 
-    ch0: IQ magnitude, 22 Hz zero-phase Butterworth (sosfiltfilt).
-         No group delay — edges land at the correct frame.
+    ch0: bandpass + Hilbert magnitude → power-compress → percentile norm → sigmoid sharpen
+    ch1: phase coherence (short-time |mean(unit phasor)|) — amplitude-invariant
+         tone-presence indicator that fails differently from ch0 under QSB.
     """
     n_out = len(audio) // 16
     n = len(audio)
 
-    # Bandpass ±22Hz around tone_freq + Hilbert envelope.
-    # Equivalent to IQ demod but avoids DC bias from the mixing products.
-    from scipy.signal import hilbert
+    # Bandpass ±22Hz around tone_freq.
     lo = max(tone_freq - 22, 1.0)
     hi = min(tone_freq + 22, sample_rate / 2 - 1)
     sos = butter(1, [lo, hi], btype="bandpass", fs=sample_rate, output="sos")
     bp = sosfiltfilt(sos, audio)
-    mag = np.abs(hilbert(bp))
+
+    # Analytic signal once, reused by ch0 (magnitude) and ch1 (phase).
+    analytic = hilbert(bp)
+
+    # ch0: amplitude envelope.
+    mag = np.abs(analytic)
     ch0 = _decimate(mag, 16)[:n_out]
-    # Power compression expands low-amplitude region for better noise-floor separation.
     ch0 = ch0 ** 0.69
     ch0 = _normalize(ch0)
-    # Sigmoid sharpening: push values toward 0/1 for sharper edges.
-    # gamma=37 is empirically optimal: output is near-binary around 0.5.
     ch0 = _sharpen(ch0, gamma=37.0)
 
-    return ch0[:, np.newaxis].astype(np.float32)
+    # ch1: phase coherence.
+    # Demodulate to baseband, normalize to unit phasor, short-time vector mean.
+    # |mean(exp(jφ))| ∈ [0,1]: 1 when phase is coherent (tone present),
+    # ~1/√N when phase is random (noise).
+    t = np.arange(n) / sample_rate
+    phasor = analytic * np.exp(-1j * 2 * np.pi * tone_freq * t)
+    phasor /= np.abs(phasor) + 1e-12
+    win = int(0.020 * sample_rate)  # 20 ms ≈ ½ dit at 25 WPM
+    kernel = np.ones(win) / win
+    coh = np.abs(
+        np.convolve(phasor.real, kernel, mode="same")
+        + 1j * np.convolve(phasor.imag, kernel, mode="same")
+    )
+    ch1 = _decimate(coh, 16)[:n_out]
+    ch1 = _normalize(ch1)
+
+    out = np.stack([ch0, ch1], axis=1).astype(np.float32)
+    return out
 
 
 def _decimate(x: np.ndarray, factor: int) -> np.ndarray:
