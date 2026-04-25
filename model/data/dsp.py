@@ -1,17 +1,19 @@
 """
-CW DSP envelope extraction — 3-channel orthogonal physics.
+CW DSP envelope extraction — 4-channel orthogonal physics.
 
-Synced from cw-ml/cw-dsp-research/dsp.py (autoresearch-validated, 3-channel pipeline).
+Synced from cw-ml/cw-dsp-research/dsp.py (autoresearch composite 0.8249,
+v1.3.1 morse-audio AGC-calibrated SNR, eval -16 to -8 dB).
 
-ch0: amplitude       — ±25 Hz bandpass + Hilbert + pct-norm + gentle sharpen
+ch0: amplitude       — ±25 Hz bandpass + Hilbert + pct-norm + double sharpen
 ch1: TKEO            — Teager-Kaiser energy on bandpassed signal (zero-delay)
 ch2: matched filter  — 48 ms coherent IQ box — narrow BW for low-SNR
+ch3: long MF         — 200 ms coherent IQ box — character-scale confidence prior
 
 Contract:
-  extract_envelope(audio, sample_rate, tone_freq) → (T, 3) float32 in [0, 1]
+  extract_envelope(audio, sample_rate, tone_freq) → (T, 4) float32 in [0, 1]
   T = len(audio) // 16. Dependencies: numpy, scipy only.
 
-process_wav(wav_path, tone_freq_hz) → np.ndarray (T, 3)
+process_wav(wav_path, tone_freq_hz) → np.ndarray (T, 4)
   Convenience wrapper: reads WAV, runs extract_envelope.
 """
 import numpy as np
@@ -26,7 +28,8 @@ DECIMATION = 16
 _BP_BW_HZ = 25.0          # ch0 bandpass half-width (narrow → low-SNR)
 _BP_ORDER = 1             # lowest order → shortest impulse response → sharpest edges
 _TKEO_SMOOTH_MS = 30.0    # ch1: TKEO smoothing window
-_MATCHED_MS = 48.0        # ch2: dit-scale IQ integration (BW~20 Hz)
+_MATCHED_MS = 48.0        # ch2: dit-scale IQ integration (BW~21 Hz)
+_LONG_MATCHED_MS = 200.0  # ch3: character-scale IQ integration (BW~5 Hz)
 _SHARPEN_GAMMA = 8.0      # applied twice (effective γ≈64 via composition)
 
 
@@ -44,13 +47,14 @@ def extract_envelope(audio: np.ndarray, sample_rate: int = DSP_SAMPLE_RATE,
     ch0 = _ch0_amplitude(bp, n_out)
     ch1 = _tkeo(bp, sample_rate, n_out)
     ch2 = _matched(audio64, sample_rate, tone_freq, n_out, _MATCHED_MS)
+    ch3 = _matched(audio64, sample_rate, tone_freq, n_out, _LONG_MATCHED_MS)
 
-    return np.stack([ch0, ch1, ch2], axis=1).astype(np.float32)
+    return np.stack([ch0, ch1, ch2, ch3], axis=1).astype(np.float32)
 
 
 def process_wav(wav_path: str, tone_freq_hz: float,
                 sample_rate: int = DSP_SAMPLE_RATE) -> np.ndarray:
-    """Read a WAV file and return the 3-channel DSP envelope (T, 3)."""
+    """Read a WAV file and return the 4-channel DSP envelope (T, 4)."""
     audio, sr = sf.read(wav_path, dtype="float32")
     if sr != sample_rate:
         raise ValueError(f"Expected {sample_rate} Hz, got {sr} in {wav_path}")

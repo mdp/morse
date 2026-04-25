@@ -1,9 +1,10 @@
 """
-CW DSP envelope extraction — 3-channel orthogonal physics.
+CW DSP envelope extraction — 4-channel orthogonal physics.
 
 ch0: amplitude       — ±25 Hz bandpass + Hilbert + pct-norm + gentle sharpen
 ch1: TKEO            — Teager-Kaiser energy on bandpassed signal (zero-delay)
 ch2: matched filter  — 48 ms coherent IQ box — narrow BW for low-SNR
+ch3: long MF         — 200 ms coherent IQ box — character-scale confidence prior
 
 Contract:
   extract_envelope(audio, sample_rate, tone_freq) → (T, C) float32 in [0, 1]
@@ -17,7 +18,8 @@ from scipy.signal import butter, hilbert, sosfiltfilt
 _BP_BW_HZ = 25.0          # ch0 bandpass half-width (narrow → low-SNR)
 _BP_ORDER = 1             # lowest order → shortest impulse response → sharpest edges
 _TKEO_SMOOTH_MS = 30.0    # ch1: TKEO smoothing window
-_MATCHED_MS = 48.0        # ch2: dit-scale IQ integration (BW~20 Hz)
+_MATCHED_MS = 48.0        # ch2: dit-scale IQ integration (BW~21 Hz)
+_LONG_MATCHED_MS = 200.0  # ch3: character-scale IQ integration (BW~5 Hz)
 _SHARPEN_GAMMA = 8.0      # applied twice (effective γ≈64 via composition)
 
 
@@ -35,8 +37,9 @@ def extract_envelope(audio: np.ndarray, sample_rate: int = 8000,
     ch0 = _ch0_amplitude(bp, n_out)
     ch1 = _tkeo(bp, sample_rate, n_out)
     ch2 = _matched(audio64, sample_rate, tone_freq, n_out, _MATCHED_MS)
+    ch3 = _matched(audio64, sample_rate, tone_freq, n_out, _LONG_MATCHED_MS)
 
-    return np.stack([ch0, ch1, ch2], axis=1).astype(np.float32)
+    return np.stack([ch0, ch1, ch2, ch3], axis=1).astype(np.float32)
 
 
 def _ch0_amplitude(bp: np.ndarray, n_out: int) -> np.ndarray:

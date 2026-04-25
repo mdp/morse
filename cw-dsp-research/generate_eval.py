@@ -82,42 +82,37 @@ CW_TEXTS = [
 # ============================================================================
 # Eval config grid
 # ============================================================================
-# Total: 200 samples, weighted toward low SNR where DSP matters most.
-# Operational envelope: SNR -16 to +5 dB, WPM 25-45.
-#   very_low (-16 to -10): 62 samples (31%)
-#   low      (-10 to  -4): 50 samples (25%)
-#   mid      ( -4 to   2): 50 samples (25%)
-#   high     (  2 to   5): 38 samples (19%)
+# Total: 200 samples uniform in SNR [-16, -8] dB — the operationally-hard
+# range where DSP improvements matter most. WPM uniform [25, 45].
+# Tier labels (constants.SNR_TIERS) fall out as:
+#   very_low (-16 to -10): ~150 samples (75%)
+#   low      (-10 to  -8): ~50 samples (25%)
+#   mid/high: empty (scorer renormalizes weights over present tiers)
 
 def _build_configs(seed=42):
     rng = np.random.RandomState(seed)
 
-    tier_specs = [
-        ("very_low", -16.0, -10.0, 62),
-        ("low",      -10.0,  -4.0, 50),
-        ("mid",       -4.0,   2.0, 50),
-        ("high",       2.0,   5.0, 38),
-    ]
+    n_total = 200
+    snrs = rng.uniform(-16.0, -8.0, n_total)
+    wpms = rng.uniform(25.0, 45.0, n_total)
     tone_freqs = [500, 550, 600, 650, 700, 750, 800]
 
     configs = []
-    for tier, snr_lo, snr_hi, n in tier_specs:
-        snrs = rng.uniform(snr_lo, snr_hi, n)
-        wpms = rng.uniform(25.0, 45.0, n)
-        for i in range(n):
-            text_idx = (len(configs)) % len(CW_TEXTS)
-            freq = tone_freqs[len(configs) % len(tone_freqs)]
-            # QSB fading: 30% of very_low, 20% of low, 0% of mid/high
-            fading_prob = {"very_low": 0.30, "low": 0.20, "mid": 0.0, "high": 0.0}[tier]
-            add_fading = rng.random() < fading_prob
-            configs.append({
-                "tier": tier,
-                "snr_db": float(snrs[i]),
-                "wpm": float(wpms[i]),
-                "tone_freq": freq,
-                "text": CW_TEXTS[text_idx],
-                "add_fading": bool(add_fading),
-            })
+    for i in range(n_total):
+        snr = float(snrs[i])
+        # Tier label matches constants.SNR_TIERS bucket
+        tier = "very_low" if snr < -10.0 else "low"
+        # QSB fading: 30% of very_low, 20% of low (matches old policy)
+        fading_prob = 0.30 if tier == "very_low" else 0.20
+        add_fading = rng.random() < fading_prob
+        configs.append({
+            "tier": tier,
+            "snr_db": snr,
+            "wpm": float(wpms[i]),
+            "tone_freq": tone_freqs[i % len(tone_freqs)],
+            "text": CW_TEXTS[i % len(CW_TEXTS)],
+            "add_fading": bool(add_fading),
+        })
 
     # Shuffle so samples aren't ordered by tier (fairer for per-N diagnostics)
     idxs = rng.permutation(len(configs))
@@ -259,7 +254,8 @@ if __name__ == "__main__":
     n = len(configs)
 
     print(f"Generating {n} eval samples → {EVAL_DIR}/")
-    print(f"WPM range: 25–45  |  SNR range: –16 to +5 dB  |  seed: 42 (fixed)")
+    print(f"WPM range: 25–45  |  SNR range: –16 to –8 dB  |  seed: 42 (fixed)")
+    print(f"Generator: morse-audio v1.3.1 (AGC-calibrated SNR)")
     print()
 
     # Tier summary
