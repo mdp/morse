@@ -5,6 +5,8 @@ runs/
 data/train/
 data/val/
 data/debug/
+data/val_eval3ch/
+eval/multistream_data/
 checkpoints/*.pt
 checkpoints/*.onnx
 !checkpoints/best.pt
