@@ -21,6 +21,7 @@ Best CER 0.0909 on the v1.3.1 -16..+6 dB val set.
 | 2026-04-25 | `20260425_172212` | 4-channel + ch3 = 200 ms long MF | **0.0909** | Production. Wins decisively at very-low SNR. |
 | 2026-04-25 | `20260425_190314` | 4-channel + ch3 = STFT contrast | 0.1002 | Reverted. See "STFT experiment" below. |
 | 2026-04-26 | `20260426_025710` | 5-channel + ch4 = temporal cadence | 0.0927 | Reverted. See "Cadence experiment" below. |
+| 2026-04-26 | (no new training) | offline Morse HSMM/Viterbi over `runs/20260425_172212/4090_best.pt` | n/a | Decoder-only experiment. Pivoted before full eval — see "HSMM offline-decoder experiment" below. |
 
 ## Multi-stream evaluation (2026-04-25)
 
@@ -260,14 +261,140 @@ integration, add STFT for freq-domain pileup discrimination. The
 `MAX_CHANNELS=4` constraint in `cw-dsp-research/constants.py` is a research-loop
 guard, not a model architecture limit — easy to bump.
 
+## HSMM offline-decoder experiment (2026-04-26, pivoted)
+
+Goal: validate the GPT5.5-ideas-2026-04-26.md "Recommended First Concrete
+Milestone" — an offline Morse HSMM/Viterbi decoder beating greedy CTC at
+≤-10 dB CER on the production 4-channel val set, no retraining.
+
+Pivoted before completing the full eval based on hand-tested samples and a
+structural finding about model emissions. The diagnostic infrastructure
+landed and is permanent; the HSMM decoder code is parked.
+
+### Diagnostic (kept): per-1dB-bin edit-op breakdown
+
+Extended `training/metrics.py:compute_edit_breakdown` and
+`eval/evaluate.py:fine_grained_breakdown` to report per-SNR-bin
+insertions/deletions/substitutions and predicted-length-vs-target plus a
+confidence calibration table. Output now lands in every `final_eval.json`
+under `fine_breakdown.snr_1db_edit_ops` and `fine_breakdown.confidence_calibration`.
+
+The doc had assumed the low-SNR failure was "false-insertion explosion"
+(citing the DSP-only `cw-dsp-research/detection_threshold.csv`). The
+trained-CTC + anti-hallucination gates actually fail differently:
+
+| SNR bin | ins/char | del/char | sub/char | pred_len/tgt_len |
+|---|---:|---:|---:|---:|
+| -10..-9  | 0.012 | 0.022 | **0.083** | 0.99 |
+| -12..-11 | 0.020 | 0.050 | **0.150** | 0.97 |
+| -14..-13 | 0.018 | **0.174** | **0.274** | 0.84 |
+| -16..-15 | 0.004 | **0.410** | 0.295 | **0.59** |
+
+Insertions are tiny everywhere (<0.02/char). Substitutions dominate
+-10..-13 dB. Deletions take over below -14 dB — at -16 dB the model emits
+only 60% of target length. The entropy/blank-ratio/run-length gates kill
+the insertion explosion DSP-alone shows; they're conservative to the point
+of dropping characters. Confidence calibration is excellent (q01:
+mean_conf=0.564 → mean_cer=0.603; q05: mean_conf=0.993 → mean_cer=0.005).
+
+**Implication**: any future "reduce hallucination" work that targets
+insertions is solving a non-problem on this codebase. The right
+interventions for the dominant failure modes:
+- substitutions → element-legality grammar and possibly a character LM
+- deletions → un-gated emissions + structured decoding that searches for
+  character evidence the entropy gate suppressed; or relax the gates
+
+### Implementation (parked, not deleted)
+
+- `model/eval/hsmm.py` — explicit-duration HSMM/Viterbi over Morse
+  grammar (dit/dah, intra/inter-character gaps), Gaussian duration priors
+  with σ=0.30 of nominal (drift tolerance), per-char log prior = -log(41),
+  idle state with off-segment silence absorption.
+- `model/eval/emissions.py` — frame-LLR sources: (a) `1 - p(blank)` from
+  CTC logits, (b) DSP ch0 envelope with logistic calibration on val
+  `frame_labels != BLANK`.
+- `model/eval/compare_decoders.py` and `model/eval/milestone_summary.py` —
+  comparison tooling.
+- Plumbing: `--decoder hsmm`, `--emission {model_blank,dsp_ch0}`,
+  `--wpm-mode {oracle,grid}`, `--dsp-calib` flags wired through
+  `main.py:cmd_evaluate` → `eval.evaluate` → `eval.decode.decode_batch`.
+
+Synthetic smoke: at oracle WPM with clean ±8 LLR over sustained on/off
+segments, all five test texts (PARIS, HELLO, CQ, KK4ABC, TEST) decode
+correctly across 12-60 WPM. The decoder works as designed — it's the
+emissions on real data that don't cooperate.
+
+### Why we pivoted: model emissions are the wrong shape for the segment HSMM
+
+Inspected sample[0] (text='0FJ/W?CS482/', wpm=21.2, snr=-10): the model
+emits each character on **exactly 1 frame** at the peak of its on-segment
+(12 isolated 1-frame `p_nonblank > 0.1` runs for 12 ground-truth
+characters in a 3398-frame clip). Expected dit width at 21 WPM is 14
+frames. Production blank ratio is 0.996.
+
+A segment-scoring HSMM expects sustained on-segments — the segment score
+is `sum(LLR over [a,b])`. Feeding spiky character-commit posteriors gave
+**CER 2.95** (output collapsed to long runs of "EEEE…", the all-dits
+character).
+
+DSP ch0 has the right structural property (it's the real Hilbert
+amplitude envelope, sustained on/off) but mediocre AUC vs `frame_labels != 0`
+labels:
+
+| SNR bin | DSP ch0 LLR AUC |
+|---|---:|
+| -16..-15 | 0.57 |
+| -12..-11 | 0.68 |
+| ≥ -4     | 0.69 |
+
+Hand-tested oracle/dsp_ch0 with leading/trailing silence absorption on
+the first 5 val samples: greedy CTC gets all 5 perfect (CER=0.000 each,
+including the -10 dB sample); HSMM gets 4 of 5 wrong by 4-15 character
+edits. At low-mid SNR where greedy already wins, DSP ch0 noise floor
+introduces character substitutions HSMM can't filter out with timing
+grammar alone.
+
+**Reading**: it's a category error to feed character-commit posteriors to
+a per-frame segment HSMM. They encode "where to commit a character" not
+"is tone on now." DSP ch0 has the right shape but its AUC at low SNR
+(0.57-0.62) doesn't have the discrimination needed to find characters
+greedy missed without adding wrong characters of its own.
+
+### Next bets
+
+1. **Phase 3 multi-head retraining** (highest conviction). Train an
+   auxiliary tone-on/off head alongside CTC on the same backbone. The
+   auxiliary head produces sustained per-frame tone posteriors — the right
+   shape for segment HSMM. CTC stays for live preview; HSMM consumes the
+   auxiliary head for offline / final-pass decode. The TS generator
+   already has character timings, so true tone-on/off labels at 250 Hz are
+   derivable without changing morse-audio.
+
+2. **CTC-aware grammar rescoring** (cheap alternative). A character-level
+   beam search over the CTC posterior with Morse-element-legality
+   transitions (rejecting impossible character sequences). Works WITH the
+   model's character-peak structure rather than against it. Probably won't
+   help deletions but might reduce substitutions in the -10..-13 dB
+   range.
+
+3. **Relax the entropy/blank-ratio gates** (single-knob test). The
+   confidence calibration is already excellent — at q01 the mean_cer is
+   0.60, so abstention via confidence works. Loosening the gate from
+   `entropy_threshold=0.3` (current) to e.g. 0.15 might recover deletions
+   at the very-low SNR tier without significantly hurting overall CER. No
+   retraining needed; one-line change in `eval/decode.py`.
+
+(2) and (3) are preludes that don't replace (1) — they're cheap experiments
+that should run before committing to a retrain.
+
 ## How to verify the production model
 
 ```bash
 cd cw-ml/model
-# expects /tmp/cw-runs/long-mf/4090_best.pt — pull from S3 if absent:
-#   aws --endpoint-url=$S3_ENDPOINT_URL s3 sync \
-#     s3://$S3_BUCKET/cw-model/runs/20260425_172212/ /tmp/cw-runs/long-mf/
+# Production checkpoint at runs/20260425_172212/4090_best.pt (synced from
+# /tmp/cw-runs/long-mf/, the local mirror of
+# s3://$S3_BUCKET/cw-model/runs/20260425_172212/).
 uv run python main.py evaluate --config configs/4090.yaml \
-    --checkpoint /tmp/cw-runs/long-mf/4090_best.pt
-# Expect: Overall CER 0.0909
+    --checkpoint runs/20260425_172212/4090_best.pt
+# Expect: Overall CER 0.0909  (local val regen: 0.0913 — within 0.5% relative)
 ```

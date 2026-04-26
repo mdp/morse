@@ -125,12 +125,23 @@ def cmd_train(args: argparse.Namespace, cfg: dict):
 
 def cmd_evaluate(args: argparse.Namespace, cfg: dict):
     from eval.evaluate import evaluate_checkpoint
+    import json
 
     checkpoint = Path(args.checkpoint)
     data_dir   = Path(args.data_dir) if args.data_dir else Path(cfg["paths"]["val_dir"])
     out_json   = Path(args.out_json) if args.out_json else None
 
-    evaluate_checkpoint(checkpoint, data_dir, cfg, out_json=out_json)
+    dsp_calib = None
+    if args.dsp_calib:
+        dsp_calib = json.load(open(args.dsp_calib))
+
+    evaluate_checkpoint(
+        checkpoint, data_dir, cfg, out_json=out_json,
+        decoder=args.decoder,
+        emission=args.emission,
+        wpm_mode=args.wpm_mode,
+        dsp_calib=dsp_calib,
+    )
 
 
 def cmd_export(args: argparse.Namespace, cfg: dict):
@@ -492,6 +503,13 @@ def main():
     parser.add_argument("--freq", type=float, default=600.0,
                         help="CW tone frequency in Hz (default: 600)")
     parser.add_argument("--out", help="Output path for ONNX model")
+    parser.add_argument("--decoder", choices=["greedy", "beam", "hsmm"],
+                        default="greedy", help="Eval decoder (default: greedy CTC)")
+    parser.add_argument("--emission", choices=["model_blank", "dsp_ch0"],
+                        default="model_blank", help="HSMM emission source")
+    parser.add_argument("--wpm-mode", choices=["oracle", "grid"],
+                        default="oracle", help="HSMM WPM strategy")
+    parser.add_argument("--dsp-calib", help="Path to JSON with DSP ch0 logistic calibration")
 
     args = parser.parse_args()
     cfg  = load_config(args.config)

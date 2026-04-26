@@ -23,9 +23,23 @@ def evaluate_checkpoint(
     data_dir: Path,
     cfg: dict,
     out_json: Path | None = None,
+    decoder: str = "greedy",
+    emission: str = "model_blank",
+    wpm_mode: str = "oracle",
+    dsp_calib: dict | None = None,
+    wpm_grid: tuple[float, float, float] = (12.0, 60.0, 2.0),
 ) -> dict:
     """
     Evaluate a saved checkpoint on a dataset directory.
+
+    decoder/emission/wpm_mode are the HSMM-comparison knobs:
+      decoder    : "greedy" | "beam" | "hsmm"
+      emission   : "model_blank" | "dsp_ch0"   (only matters for hsmm)
+      wpm_mode   : "oracle" | "grid"           (only matters for hsmm)
+      dsp_calib  : {"a": float, "b": float} from eval.emissions, required when
+                   emission == "dsp_ch0".
+      wpm_grid   : (start, stop, step) for HSMM grid search.
+
     Returns full bucket summary.
     """
     device = _get_device(cfg)
@@ -72,7 +86,15 @@ def evaluate_checkpoint(
 
     with torch.no_grad():
         for inputs, targets, input_lengths, target_lengths, _frame_labels, meta in loader:
-            results = decode_batch(model, inputs, input_lengths.tolist(), device)
+            wpms = list(meta["wpm"]) if (decoder == "hsmm" and wpm_mode == "oracle") else None
+            results = decode_batch(
+                model, inputs, input_lengths.tolist(), device,
+                decoder=decoder,
+                emission=emission,
+                dsp_calib=dsp_calib,
+                wpms=wpms,
+                wpm_grid=wpm_grid,
+            )
 
             tgt_list  = targets.tolist()
             tgt_lens  = target_lengths.tolist()

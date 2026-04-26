@@ -212,9 +212,28 @@ def decode_batch(
     device: torch.device | None = None,
     entropy_threshold: float = 0.3,
     beam_width: int = 0,
+    decoder: str = "greedy",
+    emission: str = "model_blank",
+    dsp_calib: dict | None = None,
+    wpms: list[float] | None = None,
+    wpm_grid: tuple[float, float, float] = (12.0, 60.0, 2.0),
 ) -> list[DecodeResult]:
     """
-    Run model + decode on a batch. beam_width=0 uses greedy decode; >0 uses beam search.
+    Run model + decode on a batch.
+
+    decoder:
+      "greedy" — CTC greedy with anti-hallucination gates (default, beam_width=0)
+      "beam"   — CTC prefix beam search (beam_width > 0)
+      "hsmm"   — Morse-grammar HSMM/Viterbi over per-frame tone LLR
+
+    emission (only for decoder="hsmm"):
+      "model_blank" — log p_nonblank - log p_blank from CTC logits (250 Hz)
+      "dsp_ch0"     — calibrated logistic on inputs[..., 0] (250 Hz, downsampled)
+
+    dsp_calib: required when emission="dsp_ch0". A {"a": float, "b": float}
+      from `eval.emissions.fit_dsp_ch0_calibration`.
+
+    wpms: per-sample oracle WPMs (length B). If None, HSMM searches wpm_grid.
 
     inputs: (B, T, in_channels)
     returns: list of B DecodeResults
@@ -223,16 +242,46 @@ def decode_batch(
         inputs = inputs.to(device)
 
     log_probs = model.infer(inputs)  # (B, T//2, C)
+    B = log_probs.shape[0]
 
-    results = []
-    for b in range(log_probs.shape[0]):
+    results: list[DecodeResult] = []
+    if decoder == "hsmm":
+        from eval.hsmm import hsmm_decode
+        from eval.emissions import (
+            emissions_from_logits, emissions_from_dsp, DspCalibration,
+        )
+        calib_obj = DspCalibration.from_json(dsp_calib) if dsp_calib else None
+        for b in range(B):
+            il = input_lengths[b] if input_lengths else None
+            if emission == "model_blank":
+                lp = log_probs[b]
+                if il is not None:
+                    lp = lp[:il]
+                e = emissions_from_logits(lp)
+            elif emission == "dsp_ch0":
+                if calib_obj is None:
+                    raise ValueError("dsp_ch0 emission requires dsp_calib")
+                # inputs is at 500 Hz; trim to active length, then downsample inside.
+                x = inputs[b]
+                if il is not None:
+                    x = x[: il * 2]  # 250 Hz output → 500 Hz input
+                e = emissions_from_dsp(x, calib_obj)
+            else:
+                raise ValueError(f"unknown emission: {emission}")
+            wpm_b = wpms[b] if wpms is not None else None
+            results.append(hsmm_decode(
+                e, wpm=wpm_b, wpm_grid=wpm_grid, wpm_search="grid",
+            ))
+        return results
+
+    # Greedy / beam paths
+    for b in range(B):
         lp = log_probs[b]
         il = input_lengths[b] if input_lengths else None
-        if beam_width > 0:
-            results.append(beam_search_decode(lp, il, beam_width=beam_width))
+        if decoder == "beam" or beam_width > 0:
+            results.append(beam_search_decode(lp, il, beam_width=max(beam_width, 10)))
         else:
             results.append(greedy_decode_with_confidence(
                 lp, il, entropy_threshold=entropy_threshold
             ))
-
     return results
