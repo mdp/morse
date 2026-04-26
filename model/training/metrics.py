@@ -52,6 +52,33 @@ def compute_cer(predicted: list[int], target: list[int]) -> float:
     return Levenshtein.distance(pred_str, tgt_str) / len(tgt_str)
 
 
+def compute_edit_breakdown(pred_str: str, tgt_str: str) -> dict:
+    """Per-operation edit-distance breakdown.
+
+    HSMM milestone diagnostic: the DSP threshold characterization predicts
+    insertions dominate at <= -10 dB. This breakdown lets us confirm that
+    on the model output before/after structured decoding.
+
+    Returns: cer, n_ins, n_del, n_sub, target_len, pred_len.
+    """
+    if len(tgt_str) == 0:
+        n_ins = len(pred_str)
+        return {"cer": 0.0 if n_ins == 0 else 1.0, "n_ins": n_ins,
+                "n_del": 0, "n_sub": 0, "target_len": 0, "pred_len": n_ins}
+    ops = Levenshtein.editops(tgt_str, pred_str)
+    n_ins = sum(1 for op in ops if op[0] == "insert")
+    n_del = sum(1 for op in ops if op[0] == "delete")
+    n_sub = sum(1 for op in ops if op[0] == "replace")
+    return {
+        "cer": (n_ins + n_del + n_sub) / len(tgt_str),
+        "n_ins": n_ins,
+        "n_del": n_del,
+        "n_sub": n_sub,
+        "target_len": len(tgt_str),
+        "pred_len": len(pred_str),
+    }
+
+
 def blank_ratio(log_probs: torch.Tensor) -> float:
     """Fraction of output frames where blank is the argmax. Should be ~0.93-0.97."""
     argmax = log_probs.argmax(dim=-1)
