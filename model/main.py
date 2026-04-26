@@ -277,7 +277,7 @@ def cmd_decode(args: argparse.Namespace, cfg: dict):
         tcn_channels=tcn_channels,
         tcn_blocks=tcn_blocks,
     ).to(device)
-    model.load_state_dict(sd)
+    model.load_state_dict(sd, strict=False)   # pre-Phase-3 checkpoints lack tone_head
     model.eval()
     print(f"Checkpoint: {checkpoint}  ({in_channels}-channel, {model.count_parameters():,} params)")
 

@@ -18,6 +18,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, Sampler
 from tqdm import tqdm
 
@@ -108,18 +109,27 @@ def train_one_epoch_blended(
     ce_char_weight: float = 3.0,
     scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
     entropy_weight: float = 0.0,
+    tone_weight: float = 0.0,
+    tone_pos_weight: float = 2.5,
     phase_tag: str = "train",
 ) -> dict:
-    """Blended CE+CTC epoch. ce_weight + ctc_weight should sum to 1.0."""
+    """Blended CE+CTC epoch. ce_weight + ctc_weight should sum to 1.0.
+
+    When tone_weight > 0, also runs the auxiliary tone head and adds
+    tone_weight * BCE(tone_logits, tone_labels) — Phase 3 multi-head training.
+    """
     model.train()
     total_loss = 0.0
+    total_tone_loss = 0.0
     n_batches = 0
+    use_tone = tone_weight > 0
 
     ce_weights = _build_ce_weights(NUM_CLASSES, device, ce_blank_weight, ce_char_weight)
     ce_loss_fn = nn.CrossEntropyLoss(weight=ce_weights, ignore_index=-1)
+    tone_pos_weight_t = torch.tensor(tone_pos_weight, device=device) if use_tone else None
 
     pbar = _progress(loader, phase_tag)
-    for inputs, targets, input_lengths, target_lengths, frame_labels, _tone_labels, _meta in pbar:
+    for inputs, targets, input_lengths, target_lengths, frame_labels, tone_labels, _meta in pbar:
         inputs = inputs.to(device)
         targets = targets.to(device)
         input_lengths = input_lengths.to(device)
@@ -128,7 +138,12 @@ def train_one_epoch_blended(
 
         optimizer.zero_grad()
 
-        log_probs = model(inputs, input_lengths)   # (B, T_out, C)
+        if use_tone:
+            log_probs, tone_logits = model.forward_dual(inputs, input_lengths)
+            tone_labels = tone_labels.to(device)   # (B, T_out) uint8
+        else:
+            log_probs = model(inputs, input_lengths)
+            tone_logits = None
 
         loss = torch.tensor(0.0, device=device)
 
@@ -144,6 +159,19 @@ def train_one_epoch_blended(
             if entropy_weight > 0:
                 loss = loss + entropy_weight * _entropy_loss(log_probs)
 
+        tone_loss_val = 0.0
+        if use_tone:
+            B, T_out = tone_logits.shape
+            mask = (torch.arange(T_out, device=device).unsqueeze(0)
+                    < input_lengths.unsqueeze(1))
+            per_frame = F.binary_cross_entropy_with_logits(
+                tone_logits, tone_labels.float(),
+                pos_weight=tone_pos_weight_t, reduction="none",
+            )
+            tone_loss = (per_frame * mask).sum() / mask.sum().clamp_min(1)
+            loss = loss + tone_weight * tone_loss
+            tone_loss_val = tone_loss.item()
+
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
@@ -151,11 +179,20 @@ def train_one_epoch_blended(
             scheduler.step()
 
         total_loss += loss.item()
+        total_tone_loss += tone_loss_val
         n_batches += 1
         br = blank_ratio(log_probs.detach())
-        pbar.set_postfix(loss=f"{loss.item():.4f}", blank=f"{br:.2f}")
+        if use_tone:
+            pbar.set_postfix(loss=f"{loss.item():.4f}",
+                             tone=f"{tone_loss_val:.4f}",
+                             blank=f"{br:.2f}")
+        else:
+            pbar.set_postfix(loss=f"{loss.item():.4f}", blank=f"{br:.2f}")
 
-    return {"loss": total_loss / max(n_batches, 1)}
+    return {
+        "loss": total_loss / max(n_batches, 1),
+        "tone_loss": total_tone_loss / max(n_batches, 1) if use_tone else None,
+    }
 
 
 @torch.no_grad()
@@ -164,21 +201,38 @@ def evaluate(
     loader: DataLoader,
     ctc_loss: nn.CTCLoss,
     device: torch.device,
+    tone_weight: float = 0.0,
+    tone_pos_weight: float = 2.5,
 ) -> dict:
     model.eval()
     total_loss = 0.0
+    total_tone_loss = 0.0
     n_batches = 0
     tracker = BucketTracker()
     blank_ratios = []
+    use_tone = tone_weight > 0
+    tone_pos_weight_t = torch.tensor(tone_pos_weight, device=device) if use_tone else None
 
-    for inputs, targets, input_lengths, target_lengths, _frame_labels, _tone_labels, meta in loader:
+    for inputs, targets, input_lengths, target_lengths, _frame_labels, tone_labels, meta in loader:
         inputs = inputs.to(device)
         targets_dev = targets.to(device)
         input_lengths = input_lengths.to(device)
         target_lengths = target_lengths.to(device)
 
-        log_probs = model(inputs, input_lengths)           # (B, T//2, C)
-        log_probs_ctc = log_probs.transpose(0, 1)         # (T//2, B, C)
+        if use_tone:
+            log_probs, tone_logits = model.forward_dual(inputs, input_lengths)
+            tone_labels_dev = tone_labels.to(device)
+            B, T_out = tone_logits.shape
+            mask = (torch.arange(T_out, device=device).unsqueeze(0)
+                    < input_lengths.unsqueeze(1))
+            per_frame = F.binary_cross_entropy_with_logits(
+                tone_logits, tone_labels_dev.float(),
+                pos_weight=tone_pos_weight_t, reduction="none",
+            )
+            total_tone_loss += float((per_frame * mask).sum() / mask.sum().clamp_min(1))
+        else:
+            log_probs = model(inputs, input_lengths)         # (B, T//2, C)
+        log_probs_ctc = log_probs.transpose(0, 1)            # (T//2, B, C)
 
         loss = ctc_loss(log_probs_ctc, targets_dev, input_lengths, target_lengths)
         total_loss += loss.item()
@@ -204,6 +258,8 @@ def evaluate(
     summary = tracker.summary()
     summary["loss"] = total_loss / max(n_batches, 1)
     summary["blank_ratio"] = sum(blank_ratios) / max(len(blank_ratios), 1)
+    if use_tone:
+        summary["tone_loss"] = total_tone_loss / max(n_batches, 1)
     return summary
 
 
@@ -276,6 +332,8 @@ def train_phase(
     entropy_weight = train_cfg.get("entropy_weight", 0.03)
     ce_blank_weight = train_cfg.get("ce_blank_weight", 0.2)
     ce_char_weight = train_cfg.get("ce_char_weight", 3.0)
+    tone_weight = train_cfg.get("tone_weight", 0.0)
+    tone_pos_weight = train_cfg.get("tone_pos_weight", 2.5)
 
     train_ds = CWDataset(str(train_dir), augment=True)
     val_ds = CWDataset(str(val_dir), augment=False)
@@ -342,9 +400,11 @@ def train_phase(
             ce_weight=ce_w, ctc_weight=ctc_w,
             ce_blank_weight=ce_blank_weight, ce_char_weight=ce_char_weight,
             scheduler=scheduler, entropy_weight=ew,
+            tone_weight=tone_weight, tone_pos_weight=tone_pos_weight,
             phase_tag=phase_tag,
         )
-        val_stats = evaluate(model, val_loader, ctc_loss, device)
+        val_stats = evaluate(model, val_loader, ctc_loss, device,
+                             tone_weight=tone_weight, tone_pos_weight=tone_pos_weight)
 
         elapsed = time.time() - t0
         val_cer = val_stats["overall"]
@@ -361,14 +421,18 @@ def train_phase(
             "lr": round(lr_now, 6),
             "elapsed_s": round(elapsed, 1),
         }
+        if tone_weight > 0:
+            row["train_tone_loss"] = round(train_stats.get("tone_loss") or 0.0, 4)
+            row["val_tone_loss"] = round(val_stats.get("tone_loss", 0.0), 4)
         log.append(row)
 
+        tone_part = (f"  tone={row['val_tone_loss']:.4f}" if tone_weight > 0 else "")
         print(
             f"[{phase_name}] {phase_tag} {epoch:3d}/{total}  "
             f"loss={row['train_loss']:.4f}  "
             f"val_loss={row['val_loss']:.4f}  "
             f"val_cer={val_cer:.4f}  "
-            f"blank={row['blank_ratio']:.3f}  "
+            f"blank={row['blank_ratio']:.3f}{tone_part}  "
             f"lr={lr_now:.2e}  "
             f"({elapsed:.0f}s)"
         )

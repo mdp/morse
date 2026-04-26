@@ -129,6 +129,13 @@ class CWNet(nn.Module):
         nn.init.zeros_(self.head.bias)
         nn.init.uniform_(self.head.weight, -0.01, 0.01)
 
+        # Auxiliary tone-on/off head (Phase 3 — feeds the parked HSMM the
+        # right-shape sustained envelopes that CTC posteriors never produce).
+        # Trained against tone_labels via BCE. ~256 extra params on top of ~880k.
+        self.tone_head = nn.Linear(gru_hidden * 2, 1)
+        nn.init.zeros_(self.tone_head.bias)
+        nn.init.uniform_(self.tone_head.weight, -0.01, 0.01)
+
     def _cnn_tcn(self, x: torch.Tensor) -> torch.Tensor:
         """x: (B, T, C) → (B, T//2, 128)"""
         x = x.transpose(1, 2)   # (B, C, T)
@@ -170,15 +177,47 @@ class CWNet(nn.Module):
 
         return torch.cat(outputs, dim=1)   # (B, T_gru, gru_hidden * 2)
 
+    def _features(self, x: torch.Tensor) -> torch.Tensor:
+        """CNN + TCN + chunked BiGRU. (B, T, in_ch) → (B, T//2, gru_hidden*2)."""
+        x = self._cnn_tcn(x)                # (B, T//2, 128)
+        return self._run_chunked_gru(x)     # (B, T//2, gru_hidden*2)
+
     def forward(self, x: torch.Tensor, input_lengths: torch.Tensor | None = None) -> torch.Tensor:
         """
         x: (batch, time, in_channels) at 500 Hz
         returns: (batch, time // 2, num_classes) log probabilities at 250 Hz
         """
-        x = self._cnn_tcn(x)                # (B, T//2, 128)
-        x = self._run_chunked_gru(x)        # (B, T//2, gru_hidden*2)
-        x = self.head(x)                    # (B, T//2, num_classes)
-        return x.log_softmax(dim=-1)
+        feat = self._features(x)            # (B, T//2, gru_hidden*2)
+        return self.head(feat).log_softmax(dim=-1)
+
+    def forward_dual(self, x: torch.Tensor,
+                     input_lengths: torch.Tensor | None = None
+                     ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Run both CTC head and tone head from one BiGRU pass.
+
+        Used by training (dual-task loss) and the future eval-side tone-emission
+        path. The single-head ``forward`` stays as the ONNX export target.
+
+        returns:
+          log_probs:   (B, T//2, num_classes), log-softmax over CTC vocab
+          tone_logits: (B, T//2) raw logits (LLR; positive = tone-on)
+        """
+        feat = self._features(x)
+        log_probs = self.head(feat).log_softmax(dim=-1)
+        tone_logits = self.tone_head(feat).squeeze(-1)
+        return log_probs, tone_logits
+
+    @torch.no_grad()
+    def infer_dual(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Like infer() but also returns tone_logits, trimmed identically."""
+        B, T, C = x.shape
+        warm = torch.zeros(B, CHUNK_FRAMES,     C, device=x.device, dtype=x.dtype)
+        tail = torch.zeros(B, LOOKAHEAD_FRAMES, C, device=x.device, dtype=x.dtype)
+        log_probs, tone_logits = self.forward_dual(torch.cat([warm, x, tail], dim=1))
+        warm_out = CHUNK_FRAMES // 2
+        tail_out = LOOKAHEAD_FRAMES // 2
+        end = log_probs.shape[1] - tail_out
+        return log_probs[:, warm_out:end], tone_logits[:, warm_out:end]
 
     @torch.no_grad()
     def infer(self, x: torch.Tensor) -> torch.Tensor:

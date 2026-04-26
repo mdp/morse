@@ -68,7 +68,14 @@ def evaluate_checkpoint(
         tcn_channels=tcn_channels,
         tcn_blocks=tcn_blocks,
     )
-    model.load_state_dict(sd)
+    # strict=False so pre-Phase-3 checkpoints (no tone_head) still load —
+    # the missing tone_head stays at init and won't be used unless caller
+    # explicitly invokes the dual head paths.
+    missing, unexpected = model.load_state_dict(sd, strict=False)
+    if unexpected:
+        print(f"[evaluate] unexpected checkpoint keys (ignored): {unexpected}")
+    if missing and missing != ["tone_head.weight", "tone_head.bias"]:
+        print(f"[evaluate] missing checkpoint keys: {missing}")
     model = model.to(device)
     model.eval()
 
