@@ -111,25 +111,35 @@ def train_one_epoch_blended(
     entropy_weight: float = 0.0,
     tone_weight: float = 0.0,
     tone_pos_weight: float = 2.5,
+    distill_weight: float = 0.0,
+    distill_temperature: float = 2.0,
     phase_tag: str = "train",
 ) -> dict:
     """Blended CE+CTC epoch. ce_weight + ctc_weight should sum to 1.0.
 
     When tone_weight > 0, also runs the auxiliary tone head and adds
     tone_weight * BCE(tone_logits, tone_labels) — Phase 3 multi-head training.
+
+    When distill_weight > 0, runs an extra teacher forward on the paired
+    clean envelope (no_grad) and adds a temperature-softened KL loss
+    pulling student noisy logits toward teacher clean logits — Phase 4b.
+    Requires the dataloader to yield non-zero `inputs_clean` (i.e. NPZs
+    generated with `paired_clean_snr_db` set).
     """
     model.train()
     total_loss = 0.0
     total_tone_loss = 0.0
+    total_distill_loss = 0.0
     n_batches = 0
     use_tone = tone_weight > 0
+    use_distill = distill_weight > 0
 
     ce_weights = _build_ce_weights(NUM_CLASSES, device, ce_blank_weight, ce_char_weight)
     ce_loss_fn = nn.CrossEntropyLoss(weight=ce_weights, ignore_index=-1)
     tone_pos_weight_t = torch.tensor(tone_pos_weight, device=device) if use_tone else None
 
     pbar = _progress(loader, phase_tag)
-    for inputs, targets, input_lengths, target_lengths, frame_labels, tone_labels, _meta in pbar:
+    for inputs, inputs_clean, targets, input_lengths, target_lengths, frame_labels, tone_labels, _meta in pbar:
         inputs = inputs.to(device)
         targets = targets.to(device)
         input_lengths = input_lengths.to(device)
@@ -172,6 +182,32 @@ def train_one_epoch_blended(
             loss = loss + tone_weight * tone_loss
             tone_loss_val = tone_loss.item()
 
+        distill_loss_val = 0.0
+        if use_distill:
+            inputs_clean = inputs_clean.to(device)
+            with torch.no_grad():
+                # Teacher logits at clean envelope (raw logits, not log_softmax;
+                # we'll re-softmax at temperature below). Use the same forward
+                # path as the student so paths align.
+                teacher_log_probs = model(inputs_clean, input_lengths)  # (B, T, C)
+            T = float(distill_temperature)
+            B, T_out, C = log_probs.shape
+            # Mask out padding frames so they don't contribute to KL.
+            mask = (torch.arange(T_out, device=device).unsqueeze(0)
+                    < input_lengths.unsqueeze(1))                       # (B, T_out)
+            student_logp_T = F.log_softmax(log_probs / T, dim=-1)        # student log-probs at temp T
+            teacher_p_T    = F.softmax(teacher_log_probs.detach() / T,
+                                        dim=-1)                          # teacher probs at temp T
+            kl_per_frame = (teacher_p_T *
+                            (teacher_p_T.clamp_min(1e-12).log() - student_logp_T)
+                            ).sum(dim=-1)                                # (B, T_out)
+            distill_loss = (kl_per_frame * mask).sum() / mask.sum().clamp_min(1)
+            # Multiply by T^2 — standard distillation scaling so the loss
+            # magnitude is comparable across temperatures.
+            distill_loss = distill_loss * (T ** 2)
+            loss = loss + distill_weight * distill_loss
+            distill_loss_val = distill_loss.item()
+
         loss.backward()
         nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
@@ -180,18 +216,20 @@ def train_one_epoch_blended(
 
         total_loss += loss.item()
         total_tone_loss += tone_loss_val
+        total_distill_loss += distill_loss_val
         n_batches += 1
         br = blank_ratio(log_probs.detach())
+        postfix = {"loss": f"{loss.item():.4f}", "blank": f"{br:.2f}"}
         if use_tone:
-            pbar.set_postfix(loss=f"{loss.item():.4f}",
-                             tone=f"{tone_loss_val:.4f}",
-                             blank=f"{br:.2f}")
-        else:
-            pbar.set_postfix(loss=f"{loss.item():.4f}", blank=f"{br:.2f}")
+            postfix["tone"] = f"{tone_loss_val:.4f}"
+        if use_distill:
+            postfix["distill"] = f"{distill_loss_val:.4f}"
+        pbar.set_postfix(**postfix)
 
     return {
         "loss": total_loss / max(n_batches, 1),
         "tone_loss": total_tone_loss / max(n_batches, 1) if use_tone else None,
+        "distill_loss": total_distill_loss / max(n_batches, 1) if use_distill else None,
     }
 
 
@@ -213,7 +251,7 @@ def evaluate(
     use_tone = tone_weight > 0
     tone_pos_weight_t = torch.tensor(tone_pos_weight, device=device) if use_tone else None
 
-    for inputs, targets, input_lengths, target_lengths, _frame_labels, tone_labels, meta in loader:
+    for inputs, _inputs_clean, targets, input_lengths, target_lengths, _frame_labels, tone_labels, meta in loader:
         inputs = inputs.to(device)
         targets_dev = targets.to(device)
         input_lengths = input_lengths.to(device)
@@ -334,6 +372,8 @@ def train_phase(
     ce_char_weight = train_cfg.get("ce_char_weight", 3.0)
     tone_weight = train_cfg.get("tone_weight", 0.0)
     tone_pos_weight = train_cfg.get("tone_pos_weight", 2.5)
+    distill_weight = train_cfg.get("distill_weight", 0.0)
+    distill_temperature = train_cfg.get("distill_temperature", 2.0)
 
     train_ds = CWDataset(str(train_dir), augment=True)
     val_ds = CWDataset(str(val_dir), augment=False)
@@ -358,9 +398,15 @@ def train_phase(
         )
         ckpt_in_ch = state[first_conv_key].shape[1]
         model_in_ch = model.conv[0].conv.weight.shape[1]
-        if ckpt_in_ch != model_in_ch:
-            print(f"WARNING: checkpoint has {ckpt_in_ch} input channels, "
-                  f"model has {model_in_ch} — skipping checkpoint, training from scratch")
+        # Sample any other tensor that depends on width to detect a full
+        # arch mismatch (e.g. debug config with gru_hidden=32 trying to load
+        # a prod checkpoint with gru_hidden=128).
+        ckpt_gru = state["gru_fwd.weight_ih_l0"].shape[1]
+        model_gru = model.gru_fwd.weight_ih_l0.shape[1]
+        if ckpt_in_ch != model_in_ch or ckpt_gru != model_gru:
+            print(f"WARNING: checkpoint arch ({ckpt_in_ch}-ch, gru_input={ckpt_gru}) "
+                  f"does not match model ({model_in_ch}-ch, gru_input={model_gru}) — "
+                  f"skipping checkpoint, training from scratch")
         else:
             missing, unexpected = model.load_state_dict(state, strict=False)
             print(f"Loaded starting checkpoint: {starting_checkpoint}")
@@ -401,6 +447,8 @@ def train_phase(
             ce_blank_weight=ce_blank_weight, ce_char_weight=ce_char_weight,
             scheduler=scheduler, entropy_weight=ew,
             tone_weight=tone_weight, tone_pos_weight=tone_pos_weight,
+            distill_weight=distill_weight,
+            distill_temperature=distill_temperature,
             phase_tag=phase_tag,
         )
         val_stats = evaluate(model, val_loader, ctc_loss, device,
@@ -424,15 +472,21 @@ def train_phase(
         if tone_weight > 0:
             row["train_tone_loss"] = round(train_stats.get("tone_loss") or 0.0, 4)
             row["val_tone_loss"] = round(val_stats.get("tone_loss", 0.0), 4)
+        if distill_weight > 0:
+            row["train_distill_loss"] = round(train_stats.get("distill_loss") or 0.0, 4)
         log.append(row)
 
-        tone_part = (f"  tone={row['val_tone_loss']:.4f}" if tone_weight > 0 else "")
+        extras = ""
+        if tone_weight > 0:
+            extras += f"  tone={row['val_tone_loss']:.4f}"
+        if distill_weight > 0:
+            extras += f"  distill={row['train_distill_loss']:.4f}"
         print(
             f"[{phase_name}] {phase_tag} {epoch:3d}/{total}  "
             f"loss={row['train_loss']:.4f}  "
             f"val_loss={row['val_loss']:.4f}  "
             f"val_cer={val_cer:.4f}  "
-            f"blank={row['blank_ratio']:.3f}{tone_part}  "
+            f"blank={row['blank_ratio']:.3f}{extras}  "
             f"lr={lr_now:.2e}  "
             f"({elapsed:.0f}s)"
         )

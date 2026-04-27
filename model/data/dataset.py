@@ -44,18 +44,33 @@ class CWDataset(Dataset):
     def __getitem__(self, idx: int) -> dict:
         data = np.load(self.files[idx], allow_pickle=True)
         envelopes = data["envelopes"].astype(np.float32)   # (T, 1)
+
+        # Phase 4b paired clean variant — only present in NPZs generated with
+        # `paired_clean_snr_db` set. Returned unchanged when present (no
+        # augmentation; the augmentation that landed in the saved envelopes
+        # was already shared between noisy and clean at generation time).
+        if "envelopes_clean" in data.files:
+            envelopes_clean = data["envelopes_clean"].astype(np.float32)
+        else:
+            envelopes_clean = None
+
         if self.augment:
             # Only label-safe augmentations. time_shift and time_mask mutate the
             # envelope without touching frame_labels — they explicitly train the
             # model to hallucinate chars onto silence and ignore precise timing.
             # additive_noise on top of already-normalised envelopes double-noises
             # every sample on top of the SNR that was baked in at generation.
-            envelopes = apply_augmentations(envelopes, {
-                "amplitude_scale":   True,
+            # Note: amplitude_scale would BREAK paired-distillation alignment
+            # if applied independently to each, so for paired samples we
+            # disable it (the model still sees natural amplitude variation
+            # via the per-sample SNR distribution).
+            aug_cfg = {
+                "amplitude_scale":   envelopes_clean is None,
                 "additive_noise":    False,
                 "time_mask":         False,
                 "time_shift":        False,
-            })
+            }
+            envelopes = apply_augmentations(envelopes, aug_cfg)
         text = str(data["text"])
         wpm = float(data.get("wpm", 20.0))
         snr_db = float(data.get("snr_db", 10.0))
@@ -64,6 +79,8 @@ class CWDataset(Dataset):
         # Hard cap — shouldn't normally trigger with well-formed data
         if envelopes.shape[0] > MAX_CLIP_SAMPLES:
             envelopes = envelopes[:MAX_CLIP_SAMPLES]
+            if envelopes_clean is not None:
+                envelopes_clean = envelopes_clean[:MAX_CLIP_SAMPLES]
 
         T = envelopes.shape[0]
         T_out = T // CNN_DOWNSAMPLE
@@ -86,7 +103,7 @@ class CWDataset(Dataset):
         # Encode text to class indices, skip unknown chars
         targets = [char_to_idx[c] for c in text.upper() if c in char_to_idx]
 
-        return {
+        out = {
             "input": torch.tensor(envelopes, dtype=torch.float32),   # (T, 1)
             "target": torch.tensor(targets, dtype=torch.long),
             "frame_labels": torch.tensor(frame_labels, dtype=torch.long),  # (T_out,)
@@ -98,13 +115,22 @@ class CWDataset(Dataset):
             "impairment": impairment,
             "text": text,
         }
+        if envelopes_clean is not None:
+            # Same shape as `input`; consumed only by Phase 4b distillation.
+            out["input_clean"] = torch.tensor(envelopes_clean, dtype=torch.float32)
+        return out
 
 
 def collate_fn(batch: list[dict]) -> tuple:
     """
     Collate variable-length samples. Pads each batch to its longest sample.
-    Returns: (inputs, targets, input_lengths, target_lengths, frame_labels,
-              tone_labels, metadata)
+    Returns: (inputs, inputs_clean, targets, input_lengths, target_lengths,
+              frame_labels, tone_labels, metadata)
+
+    inputs_clean is the paired clean envelope batch when available
+    (Phase 4b distillation). For samples without a paired clean variant it's
+    a zero tensor of the same shape; consumers should ignore it unless they
+    were configured for distillation.
     """
     max_T = max(b["input"].shape[0] for b in batch)
     max_T = max_T + (max_T % 2)          # round up to even — causal stride-2 conv outputs ceil(T/2)
@@ -113,12 +139,17 @@ def collate_fn(batch: list[dict]) -> tuple:
     B = len(batch)
     n_channels = batch[0]["input"].shape[1]
     inputs = torch.zeros(B, max_T, n_channels)
+    inputs_clean = torch.zeros(B, max_T, n_channels)
+    has_clean = "input_clean" in batch[0]
     frame_labels = torch.zeros(B, max_T_out, dtype=torch.long)
     tone_labels  = torch.zeros(B, max_T_out, dtype=torch.uint8)
 
     for i, b in enumerate(batch):
         T = b["input"].shape[0]
         inputs[i, :T] = b["input"]
+        if has_clean and "input_clean" in b:
+            Tc = b["input_clean"].shape[0]
+            inputs_clean[i, :Tc] = b["input_clean"]
         Tf = b["frame_labels"].shape[0]
         frame_labels[i, :Tf] = b["frame_labels"]
         Tt = b["tone_labels"].shape[0]
@@ -136,5 +167,6 @@ def collate_fn(batch: list[dict]) -> tuple:
         "snr_db": [b["snr_db"] for b in batch],
         "impairment": [b["impairment"] for b in batch],
         "text": [b["text"] for b in batch],
+        "has_clean": has_clean,
     }
-    return inputs, targets, input_lengths, target_lengths, frame_labels, tone_labels, meta
+    return inputs, inputs_clean, targets, input_lengths, target_lengths, frame_labels, tone_labels, meta

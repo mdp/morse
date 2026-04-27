@@ -146,8 +146,19 @@ def _add_impairments(sample_cfg: dict, imp: str, rng: random.Random,
         }
 
 
-def build_configs(n: int, cfg: dict, seed: int = 42) -> list[dict]:
-    """Build n sample configs from a data config dict."""
+def build_configs(
+    n: int, cfg: dict, seed: int = 42,
+    *, paired_clean_snr_db: float | None = None,
+) -> list[dict]:
+    """Build n sample configs from a data config dict.
+
+    paired_clean_snr_db: if set, returns 2n configs interleaved (noisy_i,
+    clean_i, noisy_{i+1}, clean_{i+1}, ...) — each pair shares text/wpm/
+    fist/freq/seed and differs only in `noise.snrDb`. The clean variant is
+    used by Phase 4b distillation as a teacher input. morse-audio's prng
+    is deterministic per seed, so the underlying signal + noise pattern
+    are bit-identical between variants; only the noise scale differs.
+    """
     rng = random.Random(seed)
     max_chars = cfg.get("max_chars", 20)
     max_clip_s = cfg.get("max_clip_s", 15.0)
@@ -214,6 +225,20 @@ def build_configs(n: int, cfg: dict, seed: int = 42) -> list[dict]:
         _add_impairments(sample_cfg, imp, rng, snr_db=snr, snr_floor=snr_floor)
 
         configs.append(sample_cfg)
+
+        if paired_clean_snr_db is not None:
+            # Clean variant: identical seed/text/wpm/fist/freq, snrDb bumped
+            # high so noise contribution is negligible. Used as teacher input
+            # for KL distillation in training.
+            clean_cfg = {
+                **sample_cfg,
+                "noise": {"snrDb": float(paired_clean_snr_db)},
+                "_clean_pair": True,
+            }
+            # Strip impairments from the clean variant — we want the teacher
+            # to see the cleanest possible signal.
+            clean_cfg.pop("ionosphericFading", None)
+            configs.append(clean_cfg)
 
     return configs
 
@@ -368,77 +393,118 @@ def _shift_elements(elements: list[tuple], offset_ms: float) -> list[tuple]:
     return [(s + offset_ms, e + offset_ms, on) for (s, e, on) in elements]
 
 
-def _dsp_and_save_npz(i: int, cfg: dict, meta: dict, npz_dir: Path) -> None:
-    """Run DSP on one WAV and write sample_{i:06d}.npz."""
-    wav_path = meta.get("outputPath", "")
-    freq = cfg["frequency"]
+def _augment_silence(
+    env: np.ndarray, characters: list[dict], elements: list[tuple],
+    rng_seed: int,
+) -> tuple[np.ndarray, list[dict], list[tuple], str]:
+    """Apply lead/tail/mid silence augmentation deterministically given rng_seed.
 
+    Returns (augmented env, augmented characters, augmented elements,
+    augmented text). The rng_seed is the only stochastic input — calling
+    this with the same seed on a paired clean/noisy envelope pair (same
+    underlying length and timing) produces identical augmentation, keeping
+    the pair frame-aligned for distillation.
+    """
+    text = "".join(c["char"] for c in characters)
+    if not characters:
+        return env, characters, elements, text
+
+    rng = np.random.default_rng(rng_seed)
+    lead_ms = float(rng.uniform(0, 750))
+    tail_ms = float(rng.uniform(0, 750))
+
+    if rng.random() < 0.30:
+        gap_ms  = float(rng.uniform(500, 2000))
+        gap_pos = rng.choice(["lead", "tail", "mid"])
+    else:
+        gap_ms  = 0.0
+        gap_pos = None
+
+    if gap_pos == "lead":
+        lead_ms += gap_ms
+    elif gap_pos == "tail":
+        tail_ms += gap_ms
+
+    last_end_ms = max(c["endMs"] for c in characters)
+    trim_samples = int((last_end_ms + tail_ms) * ENVELOPE_SR / 1000)
+    env = env[:trim_samples]
+
+    env_ms = len(env) * 1000.0 / ENVELOPE_SR
+    characters = [c for c in characters if c["endMs"] <= env_ms]
+    elements   = [(s, e, on) for (s, e, on) in elements if e <= env_ms]
+    text = "".join(c["char"] for c in characters)
+
+    lead_samples = int(lead_ms * ENVELOPE_SR / 1000)
+    if lead_samples:
+        env = np.concatenate([np.zeros((lead_samples, env.shape[1]), dtype=np.float32), env])
+    lead_ms_actual = lead_samples * 1000.0 / ENVELOPE_SR
+    characters = _shift_chars(characters, lead_ms_actual)
+    elements   = _shift_elements(elements, lead_ms_actual)
+
+    if gap_pos == "mid" and len(characters) >= 2:
+        split_idx = int(rng.integers(1, len(characters)))
+        insert_after_ms = characters[split_idx - 1]["endMs"]
+        insert_samples  = int(gap_ms * ENVELOPE_SR / 1000)
+        split_frame     = int(insert_after_ms * ENVELOPE_SR / 1000)
+        split_frame     = min(split_frame, len(env))
+        silence         = np.zeros((insert_samples, env.shape[1]), dtype=np.float32)
+        env = np.concatenate([env[:split_frame], silence, env[split_frame:]])
+        characters = [
+            c if c["endMs"] <= insert_after_ms else
+            {**c, "startMs": c["startMs"] + gap_ms, "endMs": c["endMs"] + gap_ms}
+            for c in characters
+        ]
+        elements = [
+            (s, e, on) if e <= insert_after_ms else (s + gap_ms, e + gap_ms, on)
+            for (s, e, on) in elements
+        ]
+
+    return env, characters, elements, text
+
+
+def _dsp_and_save_npz(
+    i: int, cfg: dict, meta: dict, npz_dir: Path,
+    *, meta_clean: dict | None = None,
+) -> None:
+    """Run DSP on one WAV (or a paired clean/noisy pair) and write sample_{i:06d}.npz.
+
+    When meta_clean is provided, the NPZ also stores `envelopes_clean` —
+    a frame-aligned high-SNR variant of the same Morse content for use as
+    a distillation teacher input (Phase 4b).
+    """
+    freq = cfg["frequency"]
+    wav_path = meta.get("outputPath", "")
     env = process_wav(wav_path, float(freq))  # (T, 1) at 500 Hz
+    env_clean = (process_wav(meta_clean.get("outputPath", ""), float(freq))
+                 if meta_clean is not None else None)
 
     characters = meta.get("characters", [])
     # elements arrive in compact tuple form (start_ms, end_ms, is_on) — see
     # _compact_elements() and run_ts_generator(). Dict form bloats pickle and
     # deadlocks ProcessPoolExecutor's call-queue pipe at scale.
     elements   = meta.get("elements") or []
-    text = "".join(c["char"] for c in characters)
 
-    # Silence augmentation: randomised lead + tail + occasional mid-sequence gap
-    if characters:
-        rng = np.random.default_rng(abs(hash(wav_path)) % (2**31))
-        lead_ms = float(rng.uniform(0, 750))
-        tail_ms = float(rng.uniform(0, 750))
+    # rng seed derived from sample index + path. For paired pair members we
+    # call _augment_silence with the SAME seed → identical augmentation →
+    # frame-aligned envelopes_clean and envelopes.
+    rng_seed = abs(hash((i, wav_path))) % (2**31)
 
-        if rng.random() < 0.30:
-            gap_ms  = float(rng.uniform(500, 2000))
-            gap_pos = rng.choice(["lead", "tail", "mid"])
-        else:
-            gap_ms  = 0.0
-            gap_pos = None
-
-        if gap_pos == "lead":
-            lead_ms += gap_ms
-        elif gap_pos == "tail":
-            tail_ms += gap_ms
-
-        last_end_ms = max(c["endMs"] for c in characters)
-        trim_samples = int((last_end_ms + tail_ms) * ENVELOPE_SR / 1000)
-        env = env[:trim_samples]
-
-        env_ms = len(env) * 1000.0 / ENVELOPE_SR
-        characters = [c for c in characters if c["endMs"] <= env_ms]
-        elements   = [(s, e, on) for (s, e, on) in elements if e <= env_ms]
-        text = "".join(c["char"] for c in characters)
-
-        lead_samples = int(lead_ms * ENVELOPE_SR / 1000)
-        if lead_samples:
-            env = np.concatenate([np.zeros((lead_samples, env.shape[1]), dtype=np.float32), env])
-        lead_ms_actual = lead_samples * 1000.0 / ENVELOPE_SR
-        characters = _shift_chars(characters, lead_ms_actual)
-        elements   = _shift_elements(elements, lead_ms_actual)
-
-        if gap_pos == "mid" and len(characters) >= 2:
-            split_idx = int(rng.integers(1, len(characters)))
-            insert_after_ms = characters[split_idx - 1]["endMs"]
-            insert_samples  = int(gap_ms * ENVELOPE_SR / 1000)
-            split_frame     = int(insert_after_ms * ENVELOPE_SR / 1000)
-            split_frame     = min(split_frame, len(env))
-            silence         = np.zeros((insert_samples, env.shape[1]), dtype=np.float32)
-            env = np.concatenate([env[:split_frame], silence, env[split_frame:]])
-            characters = [
-                c if c["endMs"] <= insert_after_ms else
-                {**c, "startMs": c["startMs"] + gap_ms, "endMs": c["endMs"] + gap_ms}
-                for c in characters
-            ]
-            elements = [
-                (s, e, on) if e <= insert_after_ms else (s + gap_ms, e + gap_ms, on)
-                for (s, e, on) in elements
-            ]
+    env, characters, elements, text = _augment_silence(
+        env, characters, elements, rng_seed=rng_seed,
+    )
+    if env_clean is not None:
+        # Re-run with the same seed; outputs except env are identical to
+        # the noisy pass since the inputs (characters, elements) are the
+        # same and rng is reseeded. We discard the duplicate metadata.
+        env_clean, _, _, _ = _augment_silence(
+            env_clean, meta.get("characters", []), meta.get("elements") or [],
+            rng_seed=rng_seed,
+        )
 
     frame_labels = build_frame_labels(characters, len(env), sample_rate=ENVELOPE_SR)
     tone_labels  = build_tone_labels(elements, len(env), sample_rate=ENVELOPE_SR)
 
-    np.savez_compressed(
-        npz_dir / f"sample_{i:06d}.npz",
+    save_kwargs = dict(
         envelopes=env,
         frame_labels=frame_labels,
         tone_labels=tone_labels,
@@ -447,23 +513,38 @@ def _dsp_and_save_npz(i: int, cfg: dict, meta: dict, npz_dir: Path) -> None:
         snr_db=np.array(cfg["_snr"], dtype=np.float32),
         impairment=np.array(cfg["_impairment"]),
     )
+    if env_clean is not None:
+        save_kwargs["envelopes_clean"] = env_clean
+    np.savez_compressed(npz_dir / f"sample_{i:06d}.npz", **save_kwargs)
 
 
 def _dsp_work(args: tuple) -> tuple[int, str | None]:
-    """Picklable worker for ProcessPoolExecutor."""
-    i, cfg, meta, npz_dir_str, keep_wav = args
+    """Picklable worker for ProcessPoolExecutor.
+
+    args is one of:
+      5-tuple:  (i, cfg, meta, npz_dir_str, keep_wav)               — single
+      6-tuple:  (i, cfg, meta, meta_clean, npz_dir_str, keep_wav)   — paired
+    """
+    if len(args) == 5:
+        i, cfg, meta, npz_dir_str, keep_wav = args
+        meta_clean = None
+    else:
+        i, cfg, meta, meta_clean, npz_dir_str, keep_wav = args
     wav_path = meta.get("outputPath", "")
+    wav_path_clean = meta_clean.get("outputPath", "") if meta_clean is not None else ""
     try:
-        _dsp_and_save_npz(i, cfg, meta, Path(npz_dir_str))
+        _dsp_and_save_npz(i, cfg, meta, Path(npz_dir_str), meta_clean=meta_clean)
         return i, None
     except Exception as e:
         return i, str(e)
     finally:
         if not keep_wav:
-            try:
-                Path(wav_path).unlink(missing_ok=True)
-            except Exception:
-                pass
+            for p in (wav_path, wav_path_clean):
+                if p:
+                    try:
+                        Path(p).unlink(missing_ok=True)
+                    except Exception:
+                        pass
 
 
 def generate_dataset(
@@ -481,12 +562,22 @@ def generate_dataset(
 
     gen_workers = train_cfg.get("gen_workers", 4)
     dsp_workers = train_cfg.get("dsp_workers", 4)
+    paired_clean_snr_db = train_cfg.get("paired_clean_snr_db")  # None | float
 
-    configs = build_configs(n, train_cfg, seed=seed)
+    configs = build_configs(n, train_cfg, seed=seed,
+                            paired_clean_snr_db=paired_clean_snr_db)
     meta_list = run_ts_generator(configs, out_dir, gen_workers=gen_workers)
 
-    print(f"Running DSP on {n} samples ({dsp_workers} workers)...")
-    args_list = [(i, configs[i], meta_list[i], str(npz_dir), keep_wav) for i in range(n)]
+    print(f"Running DSP on {n} samples ({dsp_workers} workers)"
+          f"{' [paired clean+noisy]' if paired_clean_snr_db is not None else ''}...")
+    if paired_clean_snr_db is not None:
+        # configs[2*i] = noisy, configs[2*i+1] = clean. n_logical = n.
+        args_list = [
+            (i, configs[2*i], meta_list[2*i], meta_list[2*i + 1], str(npz_dir), keep_wav)
+            for i in range(n)
+        ]
+    else:
+        args_list = [(i, configs[i], meta_list[i], str(npz_dir), keep_wav) for i in range(n)]
 
     errors = []
     import os, time
