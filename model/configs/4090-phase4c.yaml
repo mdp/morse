@@ -70,10 +70,12 @@ training:
   distill_temperature: 2.0
 
 data:
-  # 2x P4a's 50k. Past 100k the marginal gradient info is shrinking on
-  # this synth distribution; if we plateau before epoch 25 we'll know we
-  # don't need to push further.
-  n_train: 100000
+  # Was 100k; knocked back to 50k after the 100k paired run failed at TS
+  # gen with disk-full (200k WAVs × ~160KB ≈ 32GB peak before DSP cleans
+  # up, vs the pod's 12GB overlay headroom). To go larger later we'd need
+  # either a bigger ephemeral disk or a streaming generate→DSP→delete
+  # refactor in run_ts_generator.
+  n_train: 50000
   n_val: 1000
   seed: 42
   max_chars: 20
