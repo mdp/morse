@@ -1,0 +1,80 @@
+# Re-eval config: drop SNR floor from -16 to -14 in val.
+# Below -14 dB the model is at an information limit (deletion-dominated
+# with len_ratio < 0.7); evaluating against -16..-14 samples drags
+# overall CER without showing meaningful per-tier movement. Refloor at
+# -14 to focus the comparison on the regime where decoder choices matter.
+#
+# Usage:
+#   uv run python main.py generate --config configs/eval-snr14.yaml
+#   uv run python main.py evaluate --config configs/eval-snr14.yaml \
+#       --checkpoint <path> --data-dir data/val_snr14 --out-json <out>
+name: eval-snr14
+
+paths:
+  train_dir: data/_unused
+  val_dir:   data/val_snr14
+  run_dir:   runs
+
+dsp:
+  channels: 4
+  sample_rate: 8000
+  envelope_rate: 500
+
+model:
+  in_channels: 4
+  gru_hidden: 128
+  gru_layers: 2
+  tcn_channels: 128
+  tcn_blocks: 5
+  dropout: 0.0
+
+training:
+  # eval-only — these matter for the evaluator's batch_size lookup
+  batch_size: 32
+  num_workers: 0
+
+data:
+  n_train: 0
+  n_val: 1000
+  seed: 42
+  max_chars: 20
+  max_clip_s: 15.0
+  gen_workers: 4
+  dsp_workers: 8
+  # New snr floor: -14 (was -16). Other tiers untouched.
+  snr_tiers:
+    very_low: {range: [-14, -10], weight: 0.30}
+    low:      {range: [-10,  -4], weight: 0.20}
+    mid:      {range: [ -4,   2], weight: 0.30}
+    high:     {range: [  2,   6], weight: 0.20}
+  buckets:
+    slow:
+      wpm: [12, 25]
+      weight: 0.35
+      impairment: {clean: 0.7, qsb: 0.3}
+      fist:
+        jitter_pct:          [0.01, 0.15]
+        dah_bias:            [-0.05, 0.05]
+        speed_drift:         [0.0,  0.02]
+        char_gap_stretch_frac: [0.0, 0.10]
+        char_gap_stretch:    [0.8, 1.2]
+    mid:
+      wpm: [25, 40]
+      weight: 0.40
+      impairment: {clean: 0.6, qsb: 0.4}
+      fist:
+        jitter_pct:          [0.02, 0.20]
+        dah_bias:            [-0.07, 0.07]
+        speed_drift:         [0.0,  0.03]
+        char_gap_stretch_frac: [0.0, 0.15]
+        char_gap_stretch:    [0.7, 1.3]
+    fast:
+      wpm: [40, 60]
+      weight: 0.25
+      impairment: {clean: 0.6, qsb: 0.4}
+      fist:
+        jitter_pct:          [0.01, 0.10]
+        dah_bias:            [-0.03, 0.03]
+        speed_drift:         [0.0,  0.02]
+        char_gap_stretch_frac: [0.0, 0.05]
+        char_gap_stretch:    [0.9, 1.1]

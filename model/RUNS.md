@@ -10,17 +10,28 @@ All CER numbers are character error rate, lower-is-better, scored on the
 
 ## Latest verdict
 
-**Phase 3 multi-head model — 4-channel DSP + auxiliary tone-on/off head.**
-Best CER **0.0880** on the same -16..+6 dB val set (slightly beats prod 0.0909).
-The tone head trained cleanly (val BCE 0.147, AUC 0.988 vs DSP ch0); CTC was not
-dragged by the dual-task loss. `checkpoints/best.pt` now points at this run.
+**Phase 4a — 4-channel + tone head + overweighted very-low-SNR training.**
+Wins ≤-10 dB tier 0.3404 vs Phase 3 0.3741. Tier-weighted overall CER drops
+~6% relative when normalized to common SNR weights. `checkpoints/best.pt`
+now points at Phase 4a (run `20260427_002413`).
 
-The HSMM milestone (Phase 3 plan's stated goal) **did NOT pass** — the parked
-`eval/hsmm.py` decoder has a real bug that mis-classifies element types even on
-textbook-clean tone emissions (verified: at WPM 15.4, raw ON-run lengths
-61/21/20/57 frames cleanly map to dah/dit/dit/dah = X, but HSMM still produces
-garbled output). The wiring (`emissions_from_tone_head` + `--emission tone_head`
-flag) is in place; the decoder needs root-cause work in a future session.
+**However**: when re-evaluated against a val set with SNR floor moved from
+-16 to -14 dB, Phase 3 and Phase 4a are essentially tied (0.0858 vs 0.0856
+overall). Most of Phase 4a's measured advantage came from samples in the
+-16..-14 dB regime where Phase 3 was at the information limit. In the
+"usable signal" regime (≥ -14 dB), the multi-head + reweighting Phase 4
+direction has been a wash. See "-14 dB floor re-eval" below.
+
+Phase 4b (paired clean/noisy KL distillation, warm-started from Phase 3)
+landed slightly worse than Phase 4a — distillation gave gains at moderate
+SNR (-8..-3 dB) but lost at the deep noise floor. Not promoted.
+
+Phase 3's HSMM milestone (the original GPT5.5-doc Phase 1 goal) **did NOT
+pass** — the parked `eval/hsmm.py` decoder has a real bug: it mis-classifies
+element types even on textbook-clean tone emissions (verified: at WPM 15.4,
+ON-run lengths 61/21/20/57 frames cleanly map to dah/dit/dit/dah = X, but
+HSMM produces garbled output). Wiring (`emissions_from_tone_head` +
+`--emission tone_head` flag) is in place; the decoder needs root-cause work.
 
 ## Run log
 
@@ -31,7 +42,9 @@ flag) is in place; the decoder needs root-cause work in a future session.
 | 2026-04-25 | `20260425_190314` | 4-channel + ch3 = STFT contrast | 0.1002 | Reverted. See "STFT experiment" below. |
 | 2026-04-26 | `20260426_025710` | 5-channel + ch4 = temporal cadence | 0.0927 | Reverted. See "Cadence experiment" below. |
 | 2026-04-26 | (no new training) | offline Morse HSMM/Viterbi over `runs/20260425_172212/4090_best.pt` | n/a | Decoder-only experiment, parked. See "HSMM offline-decoder experiment" below. |
-| 2026-04-26 | `20260426_185002` | 4-channel + Phase 3 auxiliary tone head, warm-started from prod | **0.0880** | Current best. CTC didn't drift; tone head converged cleanly. See "Phase 3 multi-head" below. |
+| 2026-04-26 | `20260426_185002` | 4-channel + Phase 3 auxiliary tone head, warm-started from prod | 0.0880 | First Phase 4 baseline. CTC didn't drift; tone head converged cleanly. See "Phase 3 multi-head" below. |
+| 2026-04-27 | `20260427_002413` | Phase 4a — gate relax + very_low: 0.20→0.30 weight | 0.1182 (P4 weights) | Tier-weighted apples-to-apples wins by ~6%. **Current best.pt.** See "Phase 4a quick-win" below. |
+| 2026-04-27 | `20260427_011354` | Phase 4b — paired clean/noisy KL distillation from P3 | 0.0866 (P3 weights) | Slightly worse than P4a. Distillation worked mechanically (loss 0.13→0.08) but didn't compound. See "Phase 4b distillation" below. |
 
 ## Phase 3 multi-head (2026-04-26, run `20260426_185002`)
 
@@ -110,36 +123,136 @@ duration-prior + segment-score combination, NOT an emissions
 problem (emissions are great). Fix is non-trivial and parked.
 The wiring is correct so the next session can pick up directly.
 
-## Phase 4 plan
+## Phase 4a quick-win (2026-04-27, run `20260427_002413`)
 
-Phase 3 model is **deletion-dominated** at low SNR. The doc decision
-tree (`GPT5.5-ideas-2026-04-26.md`) for that failure mode prescribes
-two directions; Phase 4 attempts both.
-
-**Phase 4a — quick win** (`configs/4090-phase4a.yaml`): warm-start from
-Phase 3 best.pt with relaxed anti-hallucination gates and reweighted
-SNR distribution:
+Setup: warm-start from Phase 3 best.pt. Relax anti-hallucination knobs
+and overweight low-SNR training:
 - `entropy_weight: 0.03 → 0.01`
-- `ce_blank_weight: 0.2 → 0.4`
+- `ce_blank_weight: 0.2 → 0.4` (note: turned out to be a no-op since
+  this knob only affects CE loss, and `ce_pretrain_epochs/ce_blend_epochs=0`
+  meant CE loss was never used in fine-tune)
 - `snr_tiers.very_low: 0.20 → 0.30` (from `mid: 0.40 → 0.30`)
-- 15 epochs (vs 20 in Phase 3 — fine-tune)
+- 15 epochs at lr=1.5e-4
 
-Hypothesis: gates were tuned for the older insertion failure mode that
-is no longer the bottleneck. Loosening them lets the model emit more
-characters where evidence exists, directly attacking deletions in the
-≤-10 dB tier.
+Results (final_eval.json scored at the new very_low=0.30 weights, so
+overall is NOT directly comparable to Phase 3's 0.0880 without
+renormalization):
 
-Pass: `≤-10dB` CER drops below Phase 3's 0.374, AND overall CER stays
-within 0.005 of 0.088. ~1 hour training run.
+| metric | Phase 3 | Phase 4a | Δ |
+|---|---:|---:|---:|
+| Overall (P4 weights) | 0.1204 (computed) | **0.1182** | -0.0022 |
+| Overall (P3 weights) | 0.0834 (= P3 native) | **0.0782** | -0.0052 |
+| ≤-10 dB tier | 0.3741 | **0.3404** | -0.034 |
+| -10..-4 dB | 0.0319 | 0.0361 | +0.004 |
+| -4..2 dB | 0.0039 | 0.0052 | +0.001 |
+| >2 dB | 0.0030 | 0.0041 | +0.001 |
 
-**Phase 4b — paired clean/noisy distillation** (after 4a). Generate each
-training sample at its sampled SNR AND at a clean reference (+20 dB or
-similar) with identical seed = identical Morse timing. Add KL loss
-pulling noisy-forward logits toward clean-forward logits. Per the doc,
-this is the highest-conviction move for deletion-dominated failure
-because it gives dense supervision exactly where CTC is weakest. Bigger
-lift: data-generator change, training-loop change, longer run. Plan
-sketch in `Phase4-distillation-plan-2026-04-26.md`.
+Tier-weighted apples-to-apples Phase 4a wins ~6% relative.
+
+**Mechanism wasn't the gate-relaxation hypothesis.** `del/c` at
+-16..-15 actually went UP slightly (+6.7%) and `len_ratio` got worse
+(0.664 → 0.629) — the opposite of "more willing to emit". The win came
+from substitution drops in the -15..-12 bins (~10-15% relative each)
+because the SNR-tier reweight gave the model better feature extraction
+at low SNR. Same blank_ratio (0.996), same anti-hallucination behavior
+in greedy decode — just better encoder features.
+
+Promoted to `checkpoints/best.pt`.
+
+## Phase 4b distillation (2026-04-27, run `20260427_011354`)
+
+Setup: warm-start from Phase 3 (NOT Phase 4a — launched before 4a
+finished). Paired clean/noisy data generation: each train sample is
+emitted twice with same seed/text/wpm/fist/freq, snr=sampled vs
+snr=+30dB (clean teacher input). morse-audio's prng is deterministic
+per seed so the underlying signal is bit-identical between members;
+only noise scale differs. Silence augmentation runs against a
+sample-index-derived rng seed so both members get frame-aligned
+augmentation.
+
+Loss: existing CTC + entropy + tone BCE plus
+`distill_weight * T² * KL(student_logits_noisy || teacher_logits_clean)`
+at temperature 2.0, weight 0.5. Teacher forward is `model(inputs_clean)`
+under no_grad — self-distillation, no separate teacher checkpoint.
+
+Cost: 2x WAV gen, 1.5x training wallclock. batch_size 48→40 for the
+extra teacher forward.
+
+Results (raw, val regenerated with Phase 3-era SNR weights):
+
+| metric | Phase 3 (warm-start) | Phase 4b | Δ |
+|---|---:|---:|---:|
+| Overall | 0.0880 | 0.0866 | -0.001 |
+| ≤-10 dB tier | 0.3741 | 0.3668 | -0.007 |
+| -10..-4 dB | 0.0319 | **0.0287** | -0.003 |
+| -4..2 dB | 0.0039 | 0.0056 | +0.002 |
+| >2 dB | 0.0030 | 0.0046 | +0.002 |
+
+Distillation worked mechanically — `train_distill_loss` 0.128 → 0.078
+over 20 epochs, val_tone_loss 0.143 (vs Phase 3's 0.147). The student
+tracked the teacher.
+
+**But Phase 4b loses to Phase 4a** under common-weighted comparison:
+`P3 weights: P4a 0.0782 < P4b 0.0822`,
+`P4 weights: P4a 0.1117 < P4b 0.1184`.
+Distillation gave gains in the moderate-SNR -10..-4 dB tier (where the
+clean teacher's posterior was useful) but lost at the deep noise floor
+where the noisy student has no evidence to fire on, regardless of what
+the teacher says. **Not promoted.**
+
+## -14 dB floor re-eval (2026-04-27)
+
+Re-evaluated Phase 3, Phase 4a, and Phase 4b on a single fresh val set
+generated with `very_low: [-14, -10]` (was `[-16, -10]`) to focus on
+the regime where decoder choices still matter (below -14 the model is
+near an information limit). Config: `configs/eval-snr14.yaml`.
+
+| metric | Phase 3 | Phase 4a | Phase 4b |
+|---|---:|---:|---:|
+| Overall CER | 0.0858 | **0.0856** | 0.0874 |
+| ≤-10 dB tier | 0.2429 | **0.2404** | 0.2463 |
+| -10..-4 | **0.0306** | 0.0328 | 0.0307 |
+| -4..2 | **0.0044** | 0.0055 | 0.0052 |
+| >2 | 0.0042 | **0.0031** | 0.0052 |
+
+**Headline finding:** Phase 3 and Phase 4a are essentially tied on the
+"usable signal" floor. Most of Phase 4a's apparent advantage at the
+-16-dB floor came from samples in -16..-14 dB where Phase 3 was at
+the information limit. In the regime where humans can copy CW, the
+multi-head + reweighting Phase 4 direction has been a wash.
+
+Phase 4b is dominated under both floors.
+
+Per-1dB-bin (where each model wins):
+- -14..-13: P4a wins (0.383 vs P3 0.396, P4b 0.406)
+- -13..-12: P3 wins (0.275 vs P4a 0.288, P4b 0.285)
+- -12..-11: P4a wins (0.173 vs P3 0.191, P4b 0.184)
+- -11..-10: P3 wins (0.115 vs P4a 0.126, P4b 0.116)
+- -10..-9: P3 wins (0.077 vs P4a 0.086, P4b 0.080)
+- -8..-3: P4b wins (distillation surfaced moderate-SNR gains)
+- ≥0 dB: ties / P4b slightly ahead
+
+Reading: P4a's wins concentrate at the very-low SNR (-14..-12) where
+its training distribution overweighted. P3 wins everywhere else in
+the noise regime. P4b's distillation produced a "cleaner-decisions"
+model that helps at moderate SNR but hurts where signal evidence is
+weak.
+
+## Where Phase 4 leaves us
+
+- `checkpoints/best.pt` is Phase 4a. Strict improvement over Phase 3 at
+  -16..-14 dB; tie/slight edge at -14..-10 dB; slight regression at
+  higher SNR.
+- The actual ≤-10 dB tier did move (0.3741 → 0.3404 = ~9% relative).
+  But that gain mostly comes from samples below -14 dB where it's
+  essentially noise-floor performance.
+- Distillation (4b) is not the path forward in this configuration —
+  it's a moderate-SNR specialist when you want a low-SNR specialist.
+- Possible Phase 4c: combine the wins (warm-start from P4a + paired
+  distillation + keep very_low=0.30 weight). Not run yet.
+- The HSMM milestone remains unmet. Decoder bug in `eval/hsmm.py` is
+  the blocker, not the supervision target. Could be a productive
+  future session.
 
 ## Multi-stream evaluation (2026-04-25)
 
