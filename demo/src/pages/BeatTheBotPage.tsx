@@ -1,16 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { decodeDataUri, type PipelineResult } from '../inference/pipeline'
 import { cer } from '../inference/decode'
 import { loadSession } from '../inference/onnx'
 import { generateAudio } from '../inference/generate'
 import { randomCallsign, callsignRegion } from '../inference/callsign'
+import { decodeDualCallsignDataUri, type DualDecodeResult } from '../inference/dualDecode'
 
 const TONE_FREQ = 700
-const MAX_LISTENS = 2
-// Real-radio convention: callsigns are repeated. Default playback plays
-// the clip twice with a short pause between, matching how operators send
-// their own call ("CQ CQ CQ DE K1ABC K1ABC").
-const REPLAY_GAP_MS = 700
+const MAX_LISTENS = 1   // audio already contains the callsign sent twice
 
 type Phase = 'idle' | 'listening' | 'guessing' | 'graded'
 
@@ -28,7 +24,11 @@ function randomRound(): Round {
   const snr = -10 + Math.floor(Math.random() * 5)
   const text = randomCallsign() // weighted US > Canada > world
   const region = callsignRegion(text)
-  const out = generateAudio({ text, wpm, snrDb: snr, frequency: TONE_FREQ })
+  // Generate one audio with the callsign sent twice. The space tells morse-
+  // audio to insert a 7-unit word gap between the two repetitions, giving
+  // the decoder a clear silence to split on for dual-look diversity combining.
+  const sentText = `${text} ${text}`
+  const out = generateAudio({ text: sentText, wpm, snrDb: snr, frequency: TONE_FREQ })
   return { text, region, wpm, snr, dataUri: out.dataUri }
 }
 
@@ -37,24 +37,18 @@ export default function BeatTheBotPage() {
   const [round, setRound] = useState<Round | null>(null)
   const [listens, setListens] = useState(0)
   const [guess, setGuess] = useState('')
-  const [botResult, setBotResult] = useState<PipelineResult | null>(null)
+  const [botResult, setBotResult] = useState<DualDecodeResult | null>(null)
   const [modelReady, setModelReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [score, setScore] = useState({ wins: 0, losses: 0, ties: 0 })
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
-  const replayTimerRef = useRef<number | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
 
   useEffect(() => {
     loadSession()
       .then(() => setModelReady(true))
       .catch((e) => setError(String(e)))
-    return () => {
-      if (replayTimerRef.current !== null) {
-        window.clearTimeout(replayTimerRef.current)
-      }
-    }
   }, [])
 
   function startRound() {
@@ -62,53 +56,38 @@ export default function BeatTheBotPage() {
     setBotResult(null)
     setGuess('')
     setListens(0)
-    if (replayTimerRef.current !== null) {
-      window.clearTimeout(replayTimerRef.current)
-      replayTimerRef.current = null
-    }
     setIsPlaying(false)
     const r = randomRound()
     setRound(r)
     setPhase('listening')
   }
 
-  // One "listen" plays the clip twice with REPLAY_GAP_MS between — mirrors
-  // real CW where callsigns are sent in pairs. The user sees one button
-  // press = two hearings.
+  // The audio file is already callsign+space+callsign — one playback gives
+  // the user (and the bot) two looks at the same call with independent noise.
   function playAudio() {
     if (!audioRef.current || !round) return
     if (listens >= MAX_LISTENS) return
     if (isPlaying) return
-
-    const audio = audioRef.current
     setIsPlaying(true)
     setListens((n) => n + 1)
-
+    const audio = audioRef.current
     audio.currentTime = 0
     void audio.play()
-
-    const onFirstEnd = () => {
-      audio.removeEventListener('ended', onFirstEnd)
-      replayTimerRef.current = window.setTimeout(() => {
-        replayTimerRef.current = null
-        if (!audioRef.current) return
-        audioRef.current.currentTime = 0
-        void audioRef.current.play()
-        const onSecondEnd = () => {
-          audioRef.current?.removeEventListener('ended', onSecondEnd)
-          setIsPlaying(false)
-        }
-        audioRef.current.addEventListener('ended', onSecondEnd)
-      }, REPLAY_GAP_MS)
+    const onEnd = () => {
+      audio.removeEventListener('ended', onEnd)
+      setIsPlaying(false)
     }
-    audio.addEventListener('ended', onFirstEnd)
+    audio.addEventListener('ended', onEnd)
   }
 
   async function submitGuess() {
     if (!round) return
     setPhase('guessing')
     try {
-      const res = await decodeDataUri(round.dataUri, TONE_FREQ)
+      // Bot uses the same audio the user heard, runs inference on each half,
+      // and combines — same diversity-combining advantage the user gets from
+      // hearing the callsign twice.
+      const res = await decodeDualCallsignDataUri(round.dataUri, TONE_FREQ)
       setBotResult(res)
       const userCer = cer(round.text, guess.toUpperCase().trim())
       const botCer = cer(round.text, res.text)
@@ -135,9 +114,11 @@ export default function BeatTheBotPage() {
     <div>
       <h1>Beat the Bot</h1>
       <p>
-        Listen to a random callsign in CW (25–35 WPM, low SNR). Each listen plays the
-        clip twice with a short pause — same as real on-air practice. You get up to
-        two listens, then type your guess. We grade you against our model on character error rate.
+        Listen to a random callsign sent in CW (25–35 WPM, low SNR). The clip plays
+        the callsign twice with a word-gap pause between — the same way operators
+        send their own call. You hear it once and guess; the bot decodes each repetition
+        independently and combines them. We grade you against the bot on character
+        error rate.
       </p>
 
       <div className="panel">
@@ -167,9 +148,7 @@ export default function BeatTheBotPage() {
               onClick={playAudio}
               disabled={phase !== 'listening' || listens >= MAX_LISTENS || isPlaying}
             >
-              {isPlaying
-                ? 'Playing…'
-                : `Play twice (${MAX_LISTENS - listens} left)`}
+              {isPlaying ? 'Playing…' : (listens === 0 ? 'Play' : 'Played')}
             </button>
           </div>
 
@@ -195,7 +174,7 @@ export default function BeatTheBotPage() {
             </button>
           </div>
           {phase === 'listening' && listens === 0 && (
-            <div className="muted">Hit Play to hear the clip.</div>
+            <div className="muted">Hit Play to hear the clip — it sends the callsign twice.</div>
           )}
         </div>
       )}
@@ -224,6 +203,14 @@ export default function BeatTheBotPage() {
               truth={round.text}
               cerPct={botCerPct!}
             />
+          </div>
+
+          <div className="muted mono" style={{ marginTop: 10, fontSize: 12 }}>
+            Bot two-look detail: 1st → {botResult.firstHalf.text || '(empty)'} (
+            {(botResult.firstHalf.confidence * 100).toFixed(0)}%) · 2nd →{' '}
+            {botResult.secondHalf.text || '(empty)'} (
+            {(botResult.secondHalf.confidence * 100).toFixed(0)}%) ·{' '}
+            {botResult.agreement ? 'agreement' : 'used higher-confidence half'}
           </div>
 
           <div style={{ marginTop: 16 }}>
