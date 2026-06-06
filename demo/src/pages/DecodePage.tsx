@@ -3,7 +3,7 @@ import { decodeDataUri, type PipelineResult } from '../inference/pipeline'
 import { cer } from '../inference/decode'
 import { loadSession } from '../inference/onnx'
 import { generateAudio } from '../inference/generate'
-import { Activity, AudioLines, CircleCheck, Clock, Cpu, Gauge, Loader2, MonitorSmartphone, Shuffle, SlidersHorizontal, Sparkles, TriangleAlert, Waves } from 'lucide-react'
+import { Activity, AudioLines, CircleCheck, Clock, Cpu, Gauge, Loader2, MonitorSmartphone, RotateCcw, Shuffle, SlidersHorizontal, Sparkles, TriangleAlert, Waves } from 'lucide-react'
 import AudioPlayer, { fmt } from '@/components/AudioPlayer'
 import VolumeControl from '@/components/VolumeControl'
 import { Button } from '@/components/ui/button'
@@ -12,8 +12,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
+import { usePersistedState } from '@/lib/usePersistedState'
 
 const TONE_FREQ = 700
+const DEFAULT_WPM = 25
+const DEFAULT_SNR = 6
+const DEFAULT_QSB = false
 
 function randomText(len: number): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
@@ -24,9 +28,9 @@ function randomText(len: number): string {
 
 export default function DecodePage() {
   const [text, setText] = useState(() => randomText(8))
-  const [wpm, setWpm] = useState(25)
-  const [snr, setSnr] = useState(6)
-  const [qsb, setQsb] = useState(false)
+  const [wpm, setWpm] = usePersistedState('decode.wpm', DEFAULT_WPM)
+  const [snr, setSnr] = usePersistedState('decode.snr', DEFAULT_SNR)
+  const [qsb, setQsb] = usePersistedState('decode.qsb', DEFAULT_QSB)
 
   const [dataUri, setDataUri] = useState<string | null>(null)
   const [result, setResult] = useState<PipelineResult | null>(null)
@@ -79,6 +83,15 @@ export default function DecodePage() {
     setQsb(v)
     clearOutput()
   }
+
+  function resetSignal() {
+    setWpm(DEFAULT_WPM)
+    setSnr(DEFAULT_SNR)
+    setQsb(DEFAULT_QSB)
+    clearOutput()
+  }
+
+  const signalIsDefault = wpm === DEFAULT_WPM && snr === DEFAULT_SNR && qsb === DEFAULT_QSB
 
   function onVolumeChange(v: number) {
     setVolume(v)
@@ -147,7 +160,19 @@ useEffect(() => {
           </div>
 
           <div className="mt-4 rounded-lg border border-border bg-background/40 p-3">
-            <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-3">Signal</div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Signal</div>
+              {!signalIsDefault && (
+                <button
+                  type="button"
+                  onClick={resetSignal}
+                  disabled={!modelReady}
+                  className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                >
+                  <RotateCcw className="size-3" />Reset
+                </button>
+              )}
+            </div>
             <div className="grid grid-cols-[18px_auto_1fr_auto] items-center gap-x-3 gap-y-4">
               <Gauge className="size-4 text-muted-foreground" />
               <Label className="text-[13px]">WPM</Label>

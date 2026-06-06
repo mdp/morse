@@ -4,12 +4,13 @@ import { loadSession } from '../inference/onnx'
 import { generateAudio } from '../inference/generate'
 import { randomCallsign, callsignRegion } from '../inference/callsign'
 import { decodeDualCallsignDataUri, type DualDecodeResult } from '../inference/dualDecode'
-import { Bot, Crown, Eye, Flame, GitMerge, Headphones, Loader2, Play, Send, Swords, TriangleAlert, User } from 'lucide-react'
+import { Bot, Crown, Eye, Flame, GitMerge, Headphones, Loader2, Play, RotateCcw, Send, Swords, TriangleAlert, User } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { fireConfetti } from '@/lib/confetti'
 import VolumeControl from '@/components/VolumeControl'
+import { usePersistedState } from '@/lib/usePersistedState'
 
 const TONE_FREQ = 700
 const MAX_LISTENS = 1
@@ -42,8 +43,8 @@ export default function BeatTheBotPage() {
   const [botResult, setBotResult] = useState<DualDecodeResult | null>(null)
   const [modelReady, setModelReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [score, setScore] = useState({ wins: 0, losses: 0, ties: 0 })
-  const [streak, setStreak] = useState(0)
+  const [score, setScore] = usePersistedState('beat.score', { wins: 0, losses: 0, ties: 0 })
+  const [streak, setStreak] = usePersistedState('beat.streak', 0)
   const [volume, setVolume] = useState(() => {
     const stored = parseFloat(localStorage.getItem('audioVolume') ?? '')
     return isNaN(stored) ? 1 : stored
@@ -79,6 +80,11 @@ export default function BeatTheBotPage() {
     const r = randomRound()
     setRound(r)
     setPhase('listening')
+  }
+
+  function resetScore() {
+    setScore({ wins: 0, losses: 0, ties: 0 })
+    setStreak(0)
   }
 
   function playAudio() {
@@ -144,7 +150,7 @@ export default function BeatTheBotPage() {
         buried in static, sent twice — one listen each. Prove an ear still beats a model.
       </p>
 
-      <Scoreboard score={score} streak={streak} modelReady={modelReady} hasRound={!!round} onStart={startRound} />
+      <Scoreboard score={score} streak={streak} modelReady={modelReady} hasRound={!!round} onStart={startRound} onReset={resetScore} />
 
       {error && (
         <div className="flex items-center gap-1.5 text-bad font-mono text-sm mb-4">
@@ -270,15 +276,17 @@ export default function BeatTheBotPage() {
 }
 
 function Scoreboard({
-  score, streak, modelReady, hasRound, onStart,
+  score, streak, modelReady, hasRound, onStart, onReset,
 }: {
   score: { wins: number; losses: number; ties: number }
   streak: number
   modelReady: boolean
   hasRound: boolean
   onStart: () => void
+  onReset: () => void
 }) {
   const lead = score.wins - score.losses
+  const played = score.wins + score.losses + score.ties
   const standing =
     lead > 0 ? `you're up by ${lead}` : lead < 0 ? `bot's up by ${-lead}` : score.wins + score.losses === 0 ? 'first to copy wins' : 'dead even'
   return (
@@ -306,6 +314,18 @@ function Scoreboard({
               <span className="inline-flex items-center gap-1 text-chart-5 font-medium">
                 <Flame className="size-3.5" />{streak} win streak
               </span>
+            </>
+          )}
+          {played > 0 && (
+            <>
+              <span aria-hidden="true">·</span>
+              <button
+                type="button"
+                onClick={onReset}
+                className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+              >
+                <RotateCcw className="size-3" />reset
+              </button>
             </>
           )}
         </div>
