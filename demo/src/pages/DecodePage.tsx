@@ -7,7 +7,7 @@ import { Activity, AudioLines, CircleCheck, Clock, Cpu, Gauge, Loader2, MonitorS
 import AudioPlayer, { fmt } from '@/components/AudioPlayer'
 import VolumeControl from '@/components/VolumeControl'
 import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Slider } from '@/components/ui/slider'
@@ -129,18 +129,19 @@ useEffect(() => {
           <CardTitle><SlidersHorizontal className="size-5 text-primary" />Generate</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-stretch">
             <Label htmlFor="text" className="sr-only">Text</Label>
             <Input
               id="text"
               type="text"
               value={text}
               onChange={(e) => changeText(e.target.value.toUpperCase())}
-              className="flex-1 font-mono min-w-0"
+              placeholder="Type text to send, or hit Random"
+              className="flex-1 h-10 font-mono min-w-0"
               maxLength={40}
               disabled={!modelReady}
             />
-            <Button variant="secondary" onClick={() => changeText(randomText(8))} type="button" disabled={!modelReady} className="shrink-0">
+            <Button variant="secondary" onClick={() => changeText(randomText(8))} type="button" disabled={!modelReady} className="shrink-0 h-10">
               <Shuffle className="size-4" /><span className="hidden sm:inline">Random</span>
             </Button>
           </div>

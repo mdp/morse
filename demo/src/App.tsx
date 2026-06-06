@@ -16,7 +16,7 @@ export default function App() {
         <div className="flex items-center justify-between gap-3 mb-3">
           <div className="flex items-center gap-2">
             <img src="/favicon.svg" alt="" className="size-6" />
-            <span className="font-semibold text-foreground text-lg">
+            <span className="font-mono font-bold text-foreground text-lg tracking-tight">
               CW <span className="text-muted-foreground font-normal">Decoder</span>
             </span>
           </div>

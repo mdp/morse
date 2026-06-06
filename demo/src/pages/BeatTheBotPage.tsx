@@ -4,7 +4,7 @@ import { loadSession } from '../inference/onnx'
 import { generateAudio } from '../inference/generate'
 import { randomCallsign, callsignRegion } from '../inference/callsign'
 import { decodeDualCallsignDataUri, type DualDecodeResult } from '../inference/dualDecode'
-import { Bot, Crown, Eye, Flame, GitMerge, Headphones, Loader2, Play, Send, TriangleAlert, User } from 'lucide-react'
+import { Bot, Crown, Eye, Flame, GitMerge, Headphones, Loader2, Play, Send, Swords, TriangleAlert, User } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -174,63 +174,57 @@ export default function BeatTheBotPage() {
                   <span className="text-muted-foreground/40 mx-1.5">·</span>
                   sent twice
                 </div>
-                {phase !== 'graded' && (
-                  <div className="shrink-0">
-                    <VolumeControl value={volume} onChange={onVolumeChange} />
-                  </div>
-                )}
+                <div className="shrink-0">
+                  <VolumeControl value={volume} onChange={onVolumeChange} />
+                </div>
               </div>
 
               <audio ref={audioRef} src={round.dataUri} preload="auto" />
 
-              {phase !== 'graded' && (
-                <div className="flex flex-col items-center gap-2.5 py-3">
-                  <button
-                    type="button"
-                    onClick={playAudio}
-                    disabled={phase !== 'listening' || listens >= MAX_LISTENS || isPlaying}
-                    aria-label={listens === 0 ? 'Play once' : 'Already played'}
-                    className="size-16 rounded-full bg-primary text-primary-foreground flex items-center justify-center transition-transform enabled:hover:scale-105 enabled:active:scale-95 disabled:opacity-50"
-                  >
-                    {isPlaying
-                      ? <Loader2 className="size-7 animate-spin" />
-                      : <Play className="size-7 translate-x-[2px]" fill="currentColor" />}
-                  </button>
-                  <span className="inline-flex items-center gap-1.5 text-[13px] text-chart-5">
-                    <Headphones className="size-3.5" />
-                    {listens === 0 ? 'One listen — make it count' : isPlaying ? 'Listen closely…' : 'That was your shot'}
-                  </span>
-                </div>
-              )}
+              <div className="flex flex-col items-center gap-2.5 py-3">
+                <button
+                  type="button"
+                  onClick={playAudio}
+                  disabled={phase !== 'listening' || listens >= MAX_LISTENS || isPlaying}
+                  aria-label={listens === 0 ? 'Play once' : 'Already played'}
+                  className="size-16 rounded-full bg-primary text-primary-foreground flex items-center justify-center transition-transform enabled:hover:scale-105 enabled:active:scale-95 disabled:opacity-50"
+                >
+                  {isPlaying
+                    ? <Loader2 className="size-7 animate-spin" />
+                    : <Play className="size-7 translate-x-[2px]" fill="currentColor" />}
+                </button>
+                <span className="inline-flex items-center gap-1.5 text-[13px] text-chart-5">
+                  <Headphones className="size-3.5" />
+                  {listens === 0 ? 'One listen — make it count' : isPlaying ? 'Listen closely…' : 'That was your shot'}
+                </span>
+              </div>
 
-              {phase !== 'graded' && (
-                <div className="flex gap-2 mt-2">
-                  <Input
-                    id="guess"
-                    type="text"
-                    value={guess}
-                    onChange={(e) => setGuess(e.target.value.toUpperCase())}
-                    placeholder="Your copy…"
-                    aria-label="Your guess"
-                    className="flex-1 min-w-0 h-10 font-mono tracking-[1px]"
-                    disabled={phase !== 'listening'}
-                    maxLength={20}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && phase === 'listening' && guess.trim() && listens > 0) void submitGuess()
-                    }}
-                  />
-                  <Button
-                    variant="default"
-                    disabled={phase !== 'listening' || !guess.trim() || listens === 0}
-                    onClick={submitGuess}
-                    className="shrink-0 h-10"
-                  >
-                    {phase === 'guessing'
-                      ? <><Loader2 className="animate-spin size-4" /> Grading…</>
-                      : <><Send className="size-4" />Submit</>}
-                  </Button>
-                </div>
-              )}
+              <div className="flex gap-2 mt-2">
+                <Input
+                  id="guess"
+                  type="text"
+                  value={guess}
+                  onChange={(e) => setGuess(e.target.value.toUpperCase())}
+                  placeholder="Your copy…"
+                  aria-label="Your guess"
+                  className="flex-1 min-w-0 h-10 font-mono tracking-[1px]"
+                  disabled={phase !== 'listening'}
+                  maxLength={20}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && phase === 'listening' && guess.trim() && listens > 0) void submitGuess()
+                  }}
+                />
+                <Button
+                  variant="default"
+                  disabled={phase !== 'listening' || !guess.trim() || listens === 0}
+                  onClick={submitGuess}
+                  className="shrink-0 h-10"
+                >
+                  {phase === 'guessing'
+                    ? <><Loader2 className="animate-spin size-4" /> Grading…</>
+                    : <><Send className="size-4" />Submit</>}
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -275,7 +269,7 @@ export default function BeatTheBotPage() {
               <TwoLookDetail result={botResult} />
 
               <Button variant="default" onClick={startRound} disabled={!modelReady} className="w-full mt-5">
-                <Play className="size-4" /> Next round
+                <Swords className="size-4" /> Next round
               </Button>
             </CardContent>
           </Card>
@@ -329,7 +323,7 @@ function Scoreboard({
         <Button disabled={!modelReady} onClick={onStart} className="w-full mt-3">
           {!modelReady
             ? <><Loader2 className="animate-spin size-4" /> Loading model…</>
-            : <><Play className="size-4" />{hasRound ? 'New round' : 'Start a round'}</>}
+            : <><Swords className="size-4" />{hasRound ? 'New round' : 'Start a round'}</>}
         </Button>
       </CardContent>
     </Card>
