@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { Radio, Swords } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import DecodePage from './pages/DecodePage'
 import BeatTheBotPage from './pages/BeatTheBotPage'
@@ -14,8 +15,8 @@ export default function App() {
         <div className="title">CW Decoder Demo</div>
         <Tabs value={tabValue} onValueChange={(v) => navigate(`/${v}`)}>
           <TabsList>
-            <TabsTrigger value="decode">Decode Demo</TabsTrigger>
-            <TabsTrigger value="beat">Beat the Bot</TabsTrigger>
+            <TabsTrigger value="decode"><Radio className="size-4" />Decode Demo</TabsTrigger>
+            <TabsTrigger value="beat"><Swords className="size-4" />Beat the Bot</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>

@@ -3,6 +3,7 @@ import { decodeDataUri, type PipelineResult } from '../inference/pipeline'
 import { cer } from '../inference/decode'
 import { loadSession } from '../inference/onnx'
 import { generateAudio } from '../inference/generate'
+import { Activity, AudioLines, Cpu, Gauge, Loader2, Play, Radio, Shuffle, TriangleAlert, Waves } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -63,7 +64,7 @@ export default function DecodePage() {
 
   return (
     <div>
-      <h1>Decode Demo</h1>
+      <div className="flex items-center gap-2"><Radio className="size-6" /><h1>Decode Demo</h1></div>
       <p>
         Generate a morse code clip at any speed and SNR, listen to it, and see what the model decodes.
         Model: <code>CWNet</code> (808k params, 3.1 MB ONNX) running in your browser via onnxruntime-web.
@@ -84,35 +85,29 @@ export default function DecodePage() {
               className="flex-1 [font-family:var(--mono)]"
               maxLength={40}
             />
-            <Button variant="secondary" onClick={() => setText(randomText(8))} type="button">Random</Button>
+            <Button variant="secondary" onClick={() => setText(randomText(8))} type="button"><Shuffle className="size-4" />Random</Button>
           </div>
           <div className="row">
-            <Label>WPM</Label>
+            <Gauge className="size-4" /><Label>WPM</Label>
             <Slider min={12} max={50} value={[wpm]} onValueChange={([n]) => setWpm(n)} />
             <span className="value">{wpm}</span>
           </div>
           <div className="row">
-            <Label>SNR (dB)</Label>
+            <Activity className="size-4" /><Label>SNR (dB)</Label>
             <Slider min={-15} max={20} value={[snr]} onValueChange={([n]) => setSnr(n)} />
             <span className="value">{snr}</span>
           </div>
           <div className="row">
-            <Label htmlFor="qsb">QSB (fading)</Label>
+            <Waves className="size-4" /><Label htmlFor="qsb">QSB (fading)</Label>
             <Switch id="qsb" checked={qsb} onCheckedChange={setQsb} />
             <span className="muted">Moderate signal fading, 0.2 Hz rate</span>
           </div>
           <div className="row">
             <Button variant="default" disabled={busy || !modelReady || !text.trim()} onClick={onGenerate}>
-              {busy ? (
-                <>
-                  <span className="spinner" /> Decoding…
-                </>
-              ) : (
-                'Generate & decode'
-              )}
+              {busy ? <><Loader2 className="animate-spin size-4" /> Decoding…</> : <><Play className="size-4" />Generate &amp; decode</>}
             </Button>
-            {!modelReady && <span className="loading"><span className="spinner" /> Loading model…</span>}
-            {error && <span className="bad mono">{error}</span>}
+            {!modelReady && <span className="loading"><Loader2 className="animate-spin size-4" /> Loading model…</span>}
+            {error && <span className="bad mono"><TriangleAlert className="size-4" /> {error}</span>}
           </div>
         </CardContent>
       </Card>
@@ -120,7 +115,7 @@ export default function DecodePage() {
       {dataUri && (
         <Card className="mb-4">
           <CardHeader>
-            <CardTitle>Audio</CardTitle>
+            <CardTitle><AudioLines className="size-5" />Audio</CardTitle>
           </CardHeader>
           <CardContent>
             <audio ref={audioRef} src={dataUri} controls style={{ width: '100%' }} />
@@ -131,7 +126,7 @@ export default function DecodePage() {
       {result && (
         <Card className="mb-4">
           <CardHeader>
-            <CardTitle>Model output</CardTitle>
+            <CardTitle><Cpu className="size-5" />Model output</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="result-text">{result.text || <span className="muted">(no output)</span>}</div>
