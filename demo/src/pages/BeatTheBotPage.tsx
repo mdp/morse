@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 const TONE_FREQ = 700
-const MAX_LISTENS = 1   // audio already contains the callsign sent twice
+const MAX_LISTENS = 1
 
 type Phase = 'idle' | 'listening' | 'guessing' | 'graded'
 
@@ -25,21 +25,10 @@ interface Round {
 }
 
 function randomRound(): Round {
-  // 20..30 WPM (inclusive). The model's CER climbs with WPM (final_eval
-  // shows 12-25: ~0.04, 25-40: ~0.08, 40-60: ~0.15), so keeping the upper
-  // bound at 30 matches a regime where dual-look + alignment-merge actually
-  // helps and the bot stays beatable.
-  const wpm = 20 + Math.floor(Math.random() * 11)         // 20..30 inclusive
-  // Beat-the-Bot range: -14..-8 dB (inclusive, 7 integer values).
-  // At -8 dB the bot is ~3% CER (easy); at -14 dB it's ~40% (hard).
-  // The dual-look split-and-merge is meant to keep the bot honest in
-  // the harder half of this range.
+  const wpm = 20 + Math.floor(Math.random() * 11)
   const snr = -14 + Math.floor(Math.random() * 7)
-  const text = randomCallsign() // weighted US > Canada > world
+  const text = randomCallsign()
   const region = callsignRegion(text)
-  // Generate one audio with the callsign sent twice. The space tells morse-
-  // audio to insert a 7-unit word gap between the two repetitions, giving
-  // the decoder a clear silence to split on for dual-look diversity combining.
   const sentText = `${text} ${text}`
   const out = generateAudio({ text: sentText, wpm, snrDb: snr, frequency: TONE_FREQ })
   return { text, region, wpm, snr, dataUri: out.dataUri }
@@ -75,8 +64,6 @@ export default function BeatTheBotPage() {
     setPhase('listening')
   }
 
-  // The audio file is already callsign+space+callsign — one playback gives
-  // the user (and the bot) two looks at the same call with independent noise.
   function playAudio() {
     if (!audioRef.current || !round) return
     if (listens >= MAX_LISTENS) return
@@ -97,9 +84,6 @@ export default function BeatTheBotPage() {
     if (!round) return
     setPhase('guessing')
     try {
-      // Bot uses the same audio the user heard, runs inference on each half,
-      // and combines — same diversity-combining advantage the user gets from
-      // hearing the callsign twice.
       const res = await decodeDualCallsignDataUri(round.dataUri, TONE_FREQ)
       setBotResult(res)
       const userCer = cer(round.text, guess.toUpperCase().trim())
@@ -125,8 +109,11 @@ export default function BeatTheBotPage() {
 
   return (
     <div>
-      <div className="flex items-center gap-2"><Swords className="size-6" /><h1>Beat the Bot</h1></div>
-      <p>
+      <div className="flex items-center gap-2 mb-3">
+        <Swords className="size-6" />
+        <h1 className="text-[28px] font-semibold text-foreground tracking-[-0.4px] m-0">Beat the Bot</h1>
+      </div>
+      <p className="mb-3">
         Listen to a random callsign sent twice in CW (20–30 WPM, low SNR), the way
         operators repeat their own call. You and the bot both get the same clip —
         one shot at it. Type your guess; we grade both decodes on character error rate.
@@ -134,8 +121,8 @@ export default function BeatTheBotPage() {
 
       <Card className="mb-4">
         <CardContent>
-          <div className="row" style={{ justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', gap: 20 }}>
+          <div className="flex items-center mb-[10px] flex-wrap justify-between">
+            <div className="flex gap-5">
               <Stat label="You" value={score.wins.toString()} accent="good" icon={<Trophy className="size-4 text-muted-foreground" />} />
               <Stat label="Bot" value={score.losses.toString()} accent="bad" icon={<Bot className="size-4 text-muted-foreground" />} />
               <Stat label="Ties" value={score.ties.toString()} icon={<Equal className="size-4 text-muted-foreground" />} />
@@ -144,8 +131,16 @@ export default function BeatTheBotPage() {
               {round ? 'New round' : 'Start'}
             </Button>
           </div>
-          {!modelReady && <div className="loading"><Loader2 className="animate-spin size-4" /> Loading model…</div>}
-          {error && <div className="bad mono"><TriangleAlert className="size-4" /> {error}</div>}
+          {!modelReady && (
+            <div className="flex items-center gap-1 text-muted-foreground text-sm">
+              <Loader2 className="animate-spin size-4" /> Loading model…
+            </div>
+          )}
+          {error && (
+            <div className="flex items-center gap-1 text-bad font-mono">
+              <TriangleAlert className="size-4" /> {error}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -155,11 +150,11 @@ export default function BeatTheBotPage() {
             <CardTitle>Round</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="muted">
+            <div className="text-muted-foreground text-[13px]">
               callsign · approx {round.wpm} wpm · SNR {round.snr} dB · region hidden until you submit
             </div>
             <audio ref={audioRef} src={round.dataUri} preload="auto" />
-            <div className="row" style={{ marginTop: 12 }}>
+            <div className="flex gap-4 items-center mb-[10px] flex-wrap mt-3">
               <Button
                 variant="secondary"
                 onClick={playAudio}
@@ -168,15 +163,14 @@ export default function BeatTheBotPage() {
                 {isPlaying ? 'Playing…' : listens === 0 ? <><Play className="size-4" />Play</> : 'Played'}
               </Button>
             </div>
-
-            <div className="row" style={{ marginTop: 12 }}>
-              <Label htmlFor="guess">Your guess</Label>
+            <div className="flex gap-4 items-center mb-[10px] flex-wrap mt-3">
+              <Label htmlFor="guess" className="min-w-[90px]">Your guess</Label>
               <Input
                 id="guess"
                 type="text"
                 value={guess}
                 onChange={(e) => setGuess(e.target.value.toUpperCase())}
-                className="flex-1 [font-family:var(--mono)] text-[18px] [letter-spacing:2px]"
+                className="flex-1 font-mono text-[18px] tracking-[2px]"
                 disabled={phase !== 'listening'}
                 maxLength={20}
                 onKeyDown={(e) => {
@@ -188,11 +182,15 @@ export default function BeatTheBotPage() {
                 disabled={phase !== 'listening' || !guess.trim() || listens === 0}
                 onClick={submitGuess}
               >
-                {phase === 'guessing' ? <><Loader2 className="animate-spin size-4" /> Grading…</> : <><Send className="size-4" />Submit</>}
+                {phase === 'guessing'
+                  ? <><Loader2 className="animate-spin size-4" /> Grading…</>
+                  : <><Send className="size-4" />Submit</>}
               </Button>
             </div>
             {phase === 'listening' && listens === 0 && (
-              <div className="muted">Hit Play to hear the clip — it sends the callsign twice.</div>
+              <div className="text-muted-foreground text-[13px]">
+                Hit Play to hear the clip — it sends the callsign twice.
+              </div>
             )}
           </CardContent>
         </Card>
@@ -204,31 +202,19 @@ export default function BeatTheBotPage() {
             <CardTitle>Results</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-2" style={{ marginBottom: 14 }}>
+            <div className="flex items-center gap-2 mb-[14px]">
               <Target className="size-4" />
-              <span className="muted">Ground truth:</span>
-              <span className="mono" style={{ fontSize: 20, color: 'var(--text-h)', letterSpacing: 2 }}>
-                {round.text}
-              </span>
+              <span className="text-muted-foreground text-[13px]">Ground truth:</span>
+              <span className="font-mono text-[20px] text-foreground tracking-[2px]">{round.text}</span>
               <Badge variant="secondary">{round.region}</Badge>
             </div>
 
-            <div className="grid-2">
-              <ResultCard
-                title="You"
-                guess={guess.toUpperCase().trim()}
-                truth={round.text}
-                cerPct={userCerPct!}
-              />
-              <ResultCard
-                title="Bot"
-                guess={botResult.text}
-                truth={round.text}
-                cerPct={botCerPct!}
-              />
+            <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
+              <ResultCard title="You" guess={guess.toUpperCase().trim()} truth={round.text} cerPct={userCerPct!} />
+              <ResultCard title="Bot" guess={botResult.text} truth={round.text} cerPct={botCerPct!} />
             </div>
 
-            <div className="muted mono" style={{ marginTop: 10, fontSize: 12 }}>
+            <div className="font-mono text-muted-foreground text-xs mt-[10px]">
               Bot two-look detail: 1st → {botResult.firstHalf.text || '(empty)'} (
               {(botResult.firstHalf.confidence * 100).toFixed(0)}%) · 2nd →{' '}
               {botResult.secondHalf.text || '(empty)'} (
@@ -236,7 +222,7 @@ export default function BeatTheBotPage() {
               {botResult.agreement ? 'agreement' : 'used higher-confidence half'}
             </div>
 
-            <div style={{ marginTop: 16 }}>
+            <div className="mt-4">
               <Verdict userCer={userCerPct!} botCer={botCerPct!} />
             </div>
           </CardContent>
@@ -253,7 +239,7 @@ function ResultCard({ title, guess, truth, cerPct }: { title: string; guess: str
     const g = guess[i] ?? '·'
     const t = truth[i] ?? '·'
     chars.push(
-      <span key={i} className={`diff-char ${g === t ? 'match' : 'miss'}`} style={{ fontFamily: 'var(--mono)' }}>
+      <span key={i} className={`font-mono ${g === t ? 'text-good' : 'text-bad font-bold'}`}>
         {g}
       </span>,
     )
@@ -264,24 +250,42 @@ function ResultCard({ title, guess, truth, cerPct }: { title: string; guess: str
         <CardTitle>{title}</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="result-text">{chars.length ? chars : <span className="muted">(nothing)</span>}</div>
-        <div className="muted" style={{ marginTop: 6 }}>CER: <span className={cerPct === 0 ? 'good' : ''}>{cerPct.toFixed(1)}%</span></div>
+        <div className="font-mono text-[22px] text-foreground px-4 py-3 bg-[var(--code-bg)] rounded-md tracking-[2px] break-all min-h-[52px]">
+          {chars.length ? chars : <span className="text-muted-foreground text-[13px]">(nothing)</span>}
+        </div>
+        <div className="text-muted-foreground text-[13px] mt-[6px]">
+          CER: <span className={cerPct === 0 ? 'text-good' : ''}>{cerPct.toFixed(1)}%</span>
+        </div>
       </CardContent>
     </Card>
   )
 }
 
 function Verdict({ userCer, botCer }: { userCer: number; botCer: number }) {
-  if (userCer < botCer) return <span className="good flex items-center gap-2" style={{ fontSize: 18, fontWeight: 600 }}><Trophy className="size-5" />You win this round.</span>
-  if (userCer > botCer) return <span className="bad flex items-center gap-2" style={{ fontSize: 18, fontWeight: 600 }}><X className="size-5" />Bot wins this round.</span>
-  return <span className="flex items-center gap-2" style={{ fontSize: 18, fontWeight: 600 }}><Equal className="size-5" />Tie.</span>
+  if (userCer < botCer) return (
+    <span className="text-good flex items-center gap-2 text-[18px] font-semibold">
+      <Trophy className="size-5" />You win this round.
+    </span>
+  )
+  if (userCer > botCer) return (
+    <span className="text-bad flex items-center gap-2 text-[18px] font-semibold">
+      <X className="size-5" />Bot wins this round.
+    </span>
+  )
+  return (
+    <span className="text-foreground flex items-center gap-2 text-[18px] font-semibold">
+      <Equal className="size-5" />Tie.
+    </span>
+  )
 }
 
 function Stat({ label, value, accent, icon }: { label: string; value: string; accent?: 'good' | 'bad'; icon?: ReactNode }) {
   return (
     <div>
-      <div className="flex items-center gap-1 muted" style={{ fontSize: 12 }}>{icon}{label}</div>
-      <div className={`mono ${accent ?? ''}`} style={{ fontSize: 22, fontWeight: 600, color: accent ? undefined : 'var(--text-h)' }}>{value}</div>
+      <div className="flex items-center gap-1 text-muted-foreground text-xs">{icon}{label}</div>
+      <div className={`font-mono text-[22px] font-semibold ${accent === 'good' ? 'text-good' : accent === 'bad' ? 'text-bad' : 'text-foreground'}`}>
+        {value}
+      </div>
     </div>
   )
 }

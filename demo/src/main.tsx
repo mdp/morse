@@ -7,7 +7,9 @@ import App from './App.tsx'
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>
-      <App />
+      <div className="max-w-[900px] mx-auto px-5 pt-6 pb-20">
+        <App />
+      </div>
     </BrowserRouter>
   </StrictMode>,
 )

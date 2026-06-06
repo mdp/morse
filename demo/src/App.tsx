@@ -11,8 +11,8 @@ export default function App() {
 
   return (
     <>
-      <div className="nav">
-        <div className="title">CW Decoder Demo</div>
+      <div className="flex gap-2 items-center pb-5 mb-6 border-b border-border">
+        <div className="flex-1 font-semibold text-foreground text-lg">CW Decoder Demo</div>
         <Tabs value={tabValue} onValueChange={(v) => navigate(`/${v}`)}>
           <TabsList>
             <TabsTrigger value="decode"><Radio className="size-4" />Decode Demo</TabsTrigger>

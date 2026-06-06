@@ -45,13 +45,7 @@ export default function DecodePage() {
     setResult(null)
     setBusy(true)
     try {
-      const out = generateAudio({
-        text,
-        wpm,
-        snrDb: snr,
-        frequency: TONE_FREQ,
-        qsb,
-      })
+      const out = generateAudio({ text, wpm, snrDb: snr, frequency: TONE_FREQ, qsb })
       setDataUri(out.dataUri)
       const decoded = await decodeDataUri(out.dataUri, TONE_FREQ)
       setResult(decoded)
@@ -64,10 +58,15 @@ export default function DecodePage() {
 
   return (
     <div>
-      <div className="flex items-center gap-2"><Radio className="size-6" /><h1>Decode Demo</h1></div>
-      <p>
+      <div className="flex items-center gap-2 mb-3">
+        <Radio className="size-6" />
+        <h1 className="text-[28px] font-semibold text-foreground tracking-[-0.4px] m-0">Decode Demo</h1>
+      </div>
+      <p className="mb-3">
         Generate a morse code clip at any speed and SNR, listen to it, and see what the model decodes.
-        Model: <code>CWNet</code> (808k params, 3.1 MB ONNX) running in your browser via onnxruntime-web.
+        Model:{' '}
+        <code className="text-sm px-1.5 py-0.5 rounded-sm bg-[var(--code-bg)] text-foreground font-mono">CWNet</code>
+        {' '}(808k params, 3.1 MB ONNX) running in your browser via onnxruntime-web.
       </p>
 
       <Card className="mb-4">
@@ -75,39 +74,54 @@ export default function DecodePage() {
           <CardTitle>Generate</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="row">
-            <Label htmlFor="text">Text</Label>
+          <div className="flex gap-4 items-center mb-[10px] flex-wrap">
+            <Label htmlFor="text" className="min-w-[90px]">Text</Label>
             <Input
               id="text"
               type="text"
               value={text}
               onChange={(e) => setText(e.target.value.toUpperCase())}
-              className="flex-1 [font-family:var(--mono)]"
+              className="flex-1 font-mono"
               maxLength={40}
             />
-            <Button variant="secondary" onClick={() => setText(randomText(8))} type="button"><Shuffle className="size-4" />Random</Button>
-          </div>
-          <div className="row">
-            <Gauge className="size-4" /><Label>WPM</Label>
-            <Slider min={12} max={50} value={[wpm]} onValueChange={([n]) => setWpm(n)} />
-            <span className="value">{wpm}</span>
-          </div>
-          <div className="row">
-            <Activity className="size-4" /><Label>SNR (dB)</Label>
-            <Slider min={-15} max={20} value={[snr]} onValueChange={([n]) => setSnr(n)} />
-            <span className="value">{snr}</span>
-          </div>
-          <div className="row">
-            <Waves className="size-4" /><Label htmlFor="qsb">QSB (fading)</Label>
-            <Switch id="qsb" checked={qsb} onCheckedChange={setQsb} />
-            <span className="muted">Moderate signal fading, 0.2 Hz rate</span>
-          </div>
-          <div className="row">
-            <Button variant="default" disabled={busy || !modelReady || !text.trim()} onClick={onGenerate}>
-              {busy ? <><Loader2 className="animate-spin size-4" /> Decoding…</> : <><Play className="size-4" />Generate &amp; decode</>}
+            <Button variant="secondary" onClick={() => setText(randomText(8))} type="button">
+              <Shuffle className="size-4" />Random
             </Button>
-            {!modelReady && <span className="loading"><Loader2 className="animate-spin size-4" /> Loading model…</span>}
-            {error && <span className="bad mono"><TriangleAlert className="size-4" /> {error}</span>}
+          </div>
+          <div className="flex gap-4 items-center mb-[10px] flex-wrap">
+            <Gauge className="size-4" />
+            <Label className="min-w-[90px]">WPM</Label>
+            <Slider min={12} max={50} value={[wpm]} onValueChange={([n]) => setWpm(n)} className="flex-1" />
+            <span className="font-mono text-foreground min-w-[60px] text-right">{wpm}</span>
+          </div>
+          <div className="flex gap-4 items-center mb-[10px] flex-wrap">
+            <Activity className="size-4" />
+            <Label className="min-w-[90px]">SNR (dB)</Label>
+            <Slider min={-15} max={20} value={[snr]} onValueChange={([n]) => setSnr(n)} className="flex-1" />
+            <span className="font-mono text-foreground min-w-[60px] text-right">{snr}</span>
+          </div>
+          <div className="flex gap-4 items-center mb-[10px] flex-wrap">
+            <Waves className="size-4" />
+            <Label htmlFor="qsb" className="min-w-[90px]">QSB (fading)</Label>
+            <Switch id="qsb" checked={qsb} onCheckedChange={setQsb} />
+            <span className="text-muted-foreground text-[13px]">Moderate signal fading, 0.2 Hz rate</span>
+          </div>
+          <div className="flex gap-4 items-center mb-[10px] flex-wrap">
+            <Button variant="default" disabled={busy || !modelReady || !text.trim()} onClick={onGenerate}>
+              {busy
+                ? <><Loader2 className="animate-spin size-4" /> Decoding…</>
+                : <><Play className="size-4" />Generate &amp; decode</>}
+            </Button>
+            {!modelReady && (
+              <span className="inline-flex items-center gap-1 text-muted-foreground text-sm">
+                <Loader2 className="animate-spin size-4" /> Loading model…
+              </span>
+            )}
+            {error && (
+              <span className="inline-flex items-center gap-1 text-bad font-mono">
+                <TriangleAlert className="size-4" /> {error}
+              </span>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -118,7 +132,7 @@ export default function DecodePage() {
             <CardTitle><AudioLines className="size-5" />Audio</CardTitle>
           </CardHeader>
           <CardContent>
-            <audio ref={audioRef} src={dataUri} controls style={{ width: '100%' }} />
+            <audio ref={audioRef} src={dataUri} controls className="w-full" />
           </CardContent>
         </Card>
       )}
@@ -129,18 +143,20 @@ export default function DecodePage() {
             <CardTitle><Cpu className="size-5" />Model output</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="result-text">{result.text || <span className="muted">(no output)</span>}</div>
-            <div className="stats">
+            <div className="font-mono text-[22px] text-foreground px-4 py-3 bg-[var(--code-bg)] rounded-md tracking-[2px] break-all min-h-[52px]">
+              {result.text || <span className="text-muted-foreground text-[13px]">(no output)</span>}
+            </div>
+            <div className="grid grid-cols-4 gap-3 mt-3 text-[13px]">
               <Stat label="CER" value={(cer(text, result.text) * 100).toFixed(1) + '%'} />
               <Stat label="Confidence" value={(result.confidence * 100).toFixed(0) + '%'} />
               <Stat label="Inference" value={result.timing.modelMs.toFixed(0) + ' ms'} />
               <Stat label="Total" value={result.timing.totalMs.toFixed(0) + ' ms'} />
             </div>
-            <div className="muted" style={{ marginTop: 10 }}>
+            <div className="text-muted-foreground text-[13px] mt-[10px]">
               Audio decode {result.timing.audioMs.toFixed(0)} ms · DSP {result.timing.dspMs.toFixed(0)} ms · CTC {result.timing.decodeMs.toFixed(0)} ms
             </div>
-            <div style={{ marginTop: 14 }}>
-              <span className="muted">Ground truth:&nbsp;</span>
+            <div className="mt-[14px]">
+              <span className="text-muted-foreground text-[13px]">Ground truth:&nbsp;</span>
               <DiffLine ref_={text} hyp={result.text} />
             </div>
           </CardContent>
@@ -152,9 +168,9 @@ export default function DecodePage() {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="cell">
-      <div className="label">{label}</div>
-      <div className="v">{value}</div>
+    <div className="bg-background border border-border rounded-md px-[10px] py-2">
+      <div className="text-muted-foreground text-xs">{label}</div>
+      <div className="text-foreground font-mono text-[15px]">{value}</div>
     </div>
   )
 }
@@ -165,9 +181,8 @@ function DiffLine({ ref_, hyp }: { ref_: string; hyp: string }) {
   for (let i = 0; i < maxLen; i++) {
     const r = ref_[i] ?? '·'
     const h = hyp[i] ?? '·'
-    const match = r === h
     chars.push(
-      <span key={i} className={`diff-char ${match ? 'match' : 'miss'}`} style={{ fontFamily: 'var(--mono)' }}>
+      <span key={i} className={`font-mono ${r === h ? 'text-good' : 'text-bad font-bold'}`}>
         {r}
       </span>,
     )
