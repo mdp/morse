@@ -3,6 +3,7 @@ import { decodeDataUri, type PipelineResult } from '../inference/pipeline'
 import { cer } from '../inference/decode'
 import { loadSession } from '../inference/onnx'
 import { generateAudio } from '../inference/generate'
+import { Button } from '@/components/ui/button'
 
 const TONE_FREQ = 700
 
@@ -75,7 +76,7 @@ export default function DecodePage() {
             style={{ flex: 1, fontFamily: 'var(--mono)' }}
             maxLength={40}
           />
-          <button onClick={() => setText(randomText(8))} type="button">Random</button>
+          <Button variant="secondary" onClick={() => setText(randomText(8))} type="button">Random</Button>
         </div>
         <div className="row">
           <label>WPM</label>
@@ -93,7 +94,7 @@ export default function DecodePage() {
           <span className="muted">Moderate signal fading, 0.2 Hz rate</span>
         </div>
         <div className="row">
-          <button className="primary" disabled={busy || !modelReady || !text.trim()} onClick={onGenerate}>
+          <Button variant="default" disabled={busy || !modelReady || !text.trim()} onClick={onGenerate}>
             {busy ? (
               <>
                 <span className="spinner" /> Decoding…
@@ -101,7 +102,7 @@ export default function DecodePage() {
             ) : (
               'Generate & decode'
             )}
-          </button>
+          </Button>
           {!modelReady && <span className="loading"><span className="spinner" /> Loading model…</span>}
           {error && <span className="bad mono">{error}</span>}
         </div>

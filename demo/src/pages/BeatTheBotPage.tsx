@@ -4,6 +4,7 @@ import { loadSession } from '../inference/onnx'
 import { generateAudio } from '../inference/generate'
 import { randomCallsign, callsignRegion } from '../inference/callsign'
 import { decodeDualCallsignDataUri, type DualDecodeResult } from '../inference/dualDecode'
+import { Button } from '@/components/ui/button'
 
 const TONE_FREQ = 700
 const MAX_LISTENS = 1   // audio already contains the callsign sent twice
@@ -133,9 +134,9 @@ export default function BeatTheBotPage() {
             <Stat label="Bot" value={score.losses.toString()} accent="bad" />
             <Stat label="Ties" value={score.ties.toString()} />
           </div>
-          <button className="primary" disabled={!modelReady} onClick={startRound}>
+          <Button disabled={!modelReady} onClick={startRound}>
             {round ? 'New round' : 'Start'}
-          </button>
+          </Button>
         </div>
         {!modelReady && <div className="loading"><span className="spinner" /> Loading model…</div>}
         {error && <div className="bad mono">{error}</div>}
@@ -149,12 +150,13 @@ export default function BeatTheBotPage() {
           </div>
           <audio ref={audioRef} src={round.dataUri} preload="auto" />
           <div className="row" style={{ marginTop: 12 }}>
-            <button
+            <Button
+              variant="secondary"
               onClick={playAudio}
               disabled={phase !== 'listening' || listens >= MAX_LISTENS || isPlaying}
             >
               {isPlaying ? 'Playing…' : (listens === 0 ? 'Play' : 'Played')}
-            </button>
+            </Button>
           </div>
 
           <div className="row" style={{ marginTop: 12 }}>
@@ -170,13 +172,13 @@ export default function BeatTheBotPage() {
                 if (e.key === 'Enter' && phase === 'listening' && guess.trim()) void submitGuess()
               }}
             />
-            <button
-              className="primary"
+            <Button
+              variant="default"
               disabled={phase !== 'listening' || !guess.trim() || listens === 0}
               onClick={submitGuess}
             >
               {phase === 'guessing' ? <><span className="spinner" /> Grading…</> : 'Submit'}
-            </button>
+            </Button>
           </div>
           {phase === 'listening' && listens === 0 && (
             <div className="muted">Hit Play to hear the clip — it sends the callsign twice.</div>
