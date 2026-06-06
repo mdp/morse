@@ -5,7 +5,7 @@
   "workspaces": [
     "morse-audio/packages/*",
     "morse-audio/apps/*",
-    "cw-decode/demo"
+    "cw-decode/apps"
   ],
   "scripts": {
     "build": "pnpm run build:packages && pnpm run build:apps",
