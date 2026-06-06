@@ -336,12 +336,34 @@ function TimingStat({ label, ms }: { label: string; ms: number }) {
 }
 
 function diffChars(ref: string, hyp: string): { ref: string; hyp: string; match: boolean }[] {
-  const maxLen = Math.max(ref.length, hyp.length)
-  const out: { ref: string; hyp: string; match: boolean }[] = []
-  for (let i = 0; i < maxLen; i++) {
-    const r = ref[i] ?? '·'
-    const h = hyp[i] ?? '·'
-    out.push({ ref: r, hyp: h, match: r === h })
+  // Levenshtein alignment (not positional) so a single dropped/added char
+  // doesn't cascade every later position into a false mismatch. Returns
+  // aligned cells with '·' marking a gap on either side. Error count and
+  // coloring derived from this now agree with cer().
+  const m = ref.length
+  const n = hyp.length
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array<number>(n + 1).fill(0))
+  for (let i = 0; i <= m; i++) dp[i][0] = i
+  for (let j = 0; j <= n; j++) dp[0][j] = j
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      const cost = ref[i - 1] === hyp[j - 1] ? 0 : 1
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost)
+    }
   }
+  const out: { ref: string; hyp: string; match: boolean }[] = []
+  let i = m
+  let j = n
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && dp[i][j] === dp[i - 1][j - 1] + (ref[i - 1] === hyp[j - 1] ? 0 : 1)) {
+      const match = ref[i - 1] === hyp[j - 1]
+      out.push({ ref: ref[i - 1], hyp: hyp[j - 1], match }); i--; j--
+    } else if (i > 0 && dp[i][j] === dp[i - 1][j] + 1) {
+      out.push({ ref: ref[i - 1], hyp: '·', match: false }); i--   // ref char the model missed
+    } else {
+      out.push({ ref: '·', hyp: hyp[j - 1], match: false }); j--   // model emitted an extra char
+    }
+  }
+  out.reverse()
   return out
 }
