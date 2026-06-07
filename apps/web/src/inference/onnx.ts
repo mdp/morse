@@ -1,7 +1,9 @@
 // Full-sequence CWNet inference. The ONNX graph is traced at a fixed envelope
 // length (MAX_FRAMES); clients zero-pad shorter audio and trim the output.
 
-import * as ort from 'onnxruntime-web';
+// WASM-only build: the app uses only the 'wasm' execution provider, so this
+// avoids shipping the larger WebGPU/JSEP wasm + JS the default entry pulls in.
+import * as ort from 'onnxruntime-web/wasm';
 import { IN_CHANNELS, NUM_CLASSES } from './constants';
 
 // Use an absolute URL so Vite's dev-time module resolver doesn't treat this
