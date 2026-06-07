@@ -147,12 +147,24 @@ Publishes `morse-audio` and `react-morse-audio` to npm with public access.
 
 ## Deployment
 
-No automated web deploy is currently configured — the GitHub Pages workflow was
-retired pending a hosting decision. Pages was a poor fit anyway: it can't serve
-the COOP/COEP headers `onnxruntime-web` needs for multi-threaded WASM, nor the
-SPA fallback for `BrowserRouter` deep links. `apps/web/public/{_headers,_redirects}`
-already target a host that honors both (Netlify / Cloudflare Pages), and the
-build serves at root (`base` is `/`).
+`apps/web` deploys to **Cloudflare Pages** as a Git-connected project — pushes to
+`main` deploy, every PR gets a preview URL. Cloudflare honors the COOP/COEP
+`_headers` (required for `onnxruntime-web` multi-threaded WASM) and the SPA
+`_redirects` in `apps/web/public/`, and serves at root (`base` is `/`). It's free
+for multiple account members.
 
-To deploy, build `apps/web` (`bun run build` → `apps/web/dist`) and point a host
-at that directory. (The npm packages still publish via the workflow above.)
+Configured in the Cloudflare dashboard (no repo config file needed):
+
+| Setting | Value |
+| --- | --- |
+| Production branch | `main` |
+| Build command | `bun install --frozen-lockfile && bunx turbo build --filter=morse-web` |
+| Build output directory | `apps/web/dist` |
+| Root directory | repo root |
+| Environment variable | `BUN_VERSION = 1.3.14` |
+
+Connecting the repo requires authorizing the Cloudflare GitHub App (a repo-admin
+action). Build runs from the repo root so the Bun workspace resolves and Turbo
+builds the `morse-audio` dependency before `morse-web`.
+
+(The npm packages still publish via the workflow above.)
