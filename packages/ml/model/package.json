@@ -1,0 +1,15 @@
+{
+  "name": "cw-model",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "generate": "uv run python main.py generate --config checkpoints/best.yaml",
+    "train": "uv run python main.py train --config checkpoints/best.yaml",
+    "train:runpod": "uv run python launch-runpod.py --config configs/4090.yaml",
+    "export:onnx": "uv run python scripts/export_full_onnx.py --checkpoint checkpoints/best.pt --config checkpoints/best.yaml --out checkpoints/cw_model_full.onnx",
+    "sync:web": "cp checkpoints/cw_model_full.onnx ../../../apps/web/public/model/cw_model_full.onnx"
+  },
+  "dependencies": {
+    "morse-audio": "workspace:*"
+  }
+}

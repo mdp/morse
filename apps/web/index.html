@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Morse — CW in your browser</title>
+
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
+    <link rel="icon" type="image/x-icon" href="%BASE_URL%favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="apple-touch-icon" href="%BASE_URL%apple-touch-icon.png" />
+    <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
+    <meta name="theme-color" content="#0F0F1A" />
+
+    <meta property="og:title" content="Morse — CW in your browser" />
+    <meta property="og:description" content="CW Morse code, decoded in your browser." />
+    <meta property="og:image" content="https://bejewelled-manatee-c93aa4.netlify.app/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="MORSE — CW decoded in your browser" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://bejewelled-manatee-c93aa4.netlify.app/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://bejewelled-manatee-c93aa4.netlify.app/og.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet" />
+    <script>
+      (() => {
+        var stored = localStorage.getItem('theme');
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var dark = stored === 'dark' || (stored !== 'light' && prefersDark);
+        if (dark) document.documentElement.classList.add('dark');
+        // Paint the themed background immediately so there's no white flash
+        // before the CSS bundle and React mount.
+        document.documentElement.style.backgroundColor = dark
+          ? 'oklch(0.1743 0.0227 283.7998)'
+          : 'oklch(0.93 0.006 286.15)';
+      })();
+      (() => {
+        // Mark standalone (installed PWA / iOS home-screen) launches before
+        // React mounts so the portrait-only guard (index.css) never flashes in
+        // a normal browser tab.
+        var standalone =
+          window.matchMedia('(display-mode: standalone)').matches ||
+          window.navigator.standalone === true;
+        if (standalone) document.documentElement.classList.add('standalone');
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Portrait-only guard. The manifest "orientation" locks installed PWAs on
+         Chromium, but iOS ignores it, so this overlay (styled in index.css)
+         enforces portrait on phone-sized landscape viewports. -->
+    <div id="rotate-guard" role="alert">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="7" y="2" width="10" height="20" rx="2" />
+        <path d="M11 18h2" />
+      </svg>
+      <p>Rotate your device to portrait</p>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
