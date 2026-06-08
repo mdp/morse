@@ -11,7 +11,8 @@
     "typecheck": "tsc",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "bake:hero": "bun scripts/bake-hero-signal.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.0",

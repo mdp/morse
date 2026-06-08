@@ -14,6 +14,7 @@ import {
   User,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import PageHeader from '@/components/page-header';
 import { Presence } from '@/components/presence';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -194,11 +195,15 @@ export default function BeatTheBotPage() {
 
   return (
     <div>
-      <p className="text-sm text-muted-foreground mb-4">
-        The machine has out-copied humans down to -12 dB. Now it's your turn.
-        One callsign, buried in static, sent twice — one listen each. Prove an
-        ear still beats a model.
-      </p>
+      <PageHeader
+        eyebrow="Human vs. machine"
+        icon={Swords}
+        title="Beat the Bot"
+      >
+        The machine has out-copied humans down to −12 dB. Now it's your turn.
+        One callsign, buried in static, keyed twice in a single pass — same
+        audio you both get. Prove an ear still beats a model.
+      </PageHeader>
 
       <Scoreboard
         score={score}

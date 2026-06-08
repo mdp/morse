@@ -7,6 +7,7 @@ import {
   Gauge,
   Loader2,
   MonitorSmartphone,
+  Radio,
   RotateCcw,
   Shuffle,
   SlidersHorizontal,
@@ -16,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import AudioPlayer, { fmt } from '@/components/audio-player';
+import PageHeader from '@/components/page-header';
 import { Presence } from '@/components/presence';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -170,10 +172,10 @@ export default function DecodePage() {
 
   return (
     <div>
-      <p className="text-sm text-muted-foreground mb-3">
-        Generate a Morse clip at any speed and SNR, then watch the model copy it
-        — entirely in your browser.
-      </p>
+      <PageHeader eyebrow="Generate & decode" icon={Radio} title="Decode">
+        Generate a Morse clip from 12–50 WPM at any SNR, then watch the model
+        copy it — entirely in your browser.
+      </PageHeader>
       <div className="flex flex-wrap gap-2 mb-4">
         <span className="inline-flex items-center gap-1.5 text-xs bg-muted rounded-full px-3 py-1">
           <Cpu className="size-3.5 text-primary" />
