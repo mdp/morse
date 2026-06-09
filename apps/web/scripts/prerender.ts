@@ -120,10 +120,16 @@ try {
       );
 
       const html = `<!doctype html>\n${await page.content()}`;
+      // Flat <route>.html, NOT <route>/index.html. A directory makes Netlify
+      // 301 /decode → /decode/ (trailing slash), which mismatches our no-slash
+      // canonical/og:url; a flat file serves at /decode with a clean 200. This
+      // is also the host-agnostic choice: Cloudflare Pages strips trailing
+      // slashes by default (the opposite of Netlify), so flat files + no-slash
+      // canonicals are correct on both.
       const outPath =
         route === '/'
           ? join(distDir, 'index.html')
-          : join(distDir, route.replace(/^\//, ''), 'index.html');
+          : join(distDir, `${route.replace(/^\//, '')}.html`);
       mkdirSync(dirname(outPath), { recursive: true });
       writeFileSync(outPath, html);
       console.log(
