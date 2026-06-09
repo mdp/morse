@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Mark Percival, John Schult
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 /**
  * MORSE mark, inlined as SVG so it paints with the initial render — no network
  * request and no empty flash on cold/hard loads (unlike an <img src>). Colors

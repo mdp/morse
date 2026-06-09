@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Mark Percival, John Schult
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Dual-look CTC decoding for repeated-callsign audio.
 //
 // When the same callsign is sent twice in one clip ("K1ABC K1ABC"), the

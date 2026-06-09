@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Mark Percival, John Schult
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 export const GITHUB_URL = 'https://github.com/mdp/morse';
 
 // lucide-react dropped its brand icons, so the GitHub mark is inlined.

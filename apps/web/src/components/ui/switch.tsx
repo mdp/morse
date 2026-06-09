@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 shadcn
+//
+// SPDX-License-Identifier: MIT
+
 import { Switch as SwitchPrimitive } from 'radix-ui';
 import type * as React from 'react';
 

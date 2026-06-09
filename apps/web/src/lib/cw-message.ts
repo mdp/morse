@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Mark Percival, John Schult
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Realistic CW practice text for the decoder's "Random" button — actual on-air
 // patterns (CQ calls, exchanges, sign-offs) built from real-looking call signs
 // and ham abbreviations, instead of a meaningless letter salad. Everything

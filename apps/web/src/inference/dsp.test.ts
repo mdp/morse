@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Mark Percival, John Schult
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Tests for the 4-channel DSP pipeline.
 //
 // Strategy: synthesize a known CW tone in pure JS (no browser AudioContext),

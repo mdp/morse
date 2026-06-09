@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Mark Percival, John Schult
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Bake the landing hero's signal data from a REAL morse-audio clip.
 //
 // Why bake: the hero is decoration. It must show genuine signal-in-noise

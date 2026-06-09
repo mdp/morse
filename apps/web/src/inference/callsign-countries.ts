@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Mark Percival, John Schult
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // ITU International Call Sign Series → country + flag, from ITU Appendix 42 /
 // ARRL. Each entry covers a contiguous prefix range "START-END" (compared on
 // the leading characters of a callsign); see `callsignCountry` in callsign.ts

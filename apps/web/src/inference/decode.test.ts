@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Mark Percival, John Schult
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Unit tests for the greedy CTC decoder. Synthesizes log-prob frames and
 // asserts the decoder collapses runs and applies the entropy/blank-ratio
 // gates correctly.

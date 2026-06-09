@@ -1,0 +1,45 @@
+version = 1
+
+[[annotations]]
+path = [
+  ".env.production.example",
+  ".gitignore",
+  "README.md",
+  "components.json",
+  "package.json",
+  "tsconfig.json",
+  "public/_headers",
+  "public/_redirects",
+  "public/apple-touch-icon.png",
+  "public/favicon.ico",
+  "public/favicon.svg",
+  "public/icon-192.png",
+  "public/icon-512.png",
+  "public/icon-maskable-512.png",
+  "public/logo.svg",
+  "public/og.png",
+  "public/model/cw_model_full.onnx",
+]
+SPDX-FileCopyrightText = "2026 Mark Percival, John Schult"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+
+# shadcn/ui components — https://ui.shadcn.com
+[[annotations]]
+path = ["src/components/ui/**"]
+SPDX-FileCopyrightText = "2023 shadcn"
+SPDX-License-Identifier = "MIT"
+
+# DSEG7Classic font by Keshikan — https://github.com/keshikan/DSEG
+[[annotations]]
+path = ["public/fonts/DSEG7Classic-Regular.woff2"]
+SPDX-FileCopyrightText = "2014-2020 Keshikan (https://www.keshikan.net)"
+SPDX-License-Identifier = "OFL-1.1"
+
+# ONNX Runtime Web — vendored from microsoft/onnxruntime
+[[annotations]]
+path = [
+  "public/ort/ort-wasm-simd-threaded.mjs",
+  "public/ort/ort-wasm-simd-threaded.wasm",
+]
+SPDX-FileCopyrightText = "Microsoft Corporation"
+SPDX-License-Identifier = "MIT"

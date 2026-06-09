@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Mark Percival, John Schult
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Greedy CTC decode with entropy gate + blank-ratio gate + run-length filter.
 // Mirrors packages/ml/model/eval/decode.py:greedy_decode_with_confidence.
 

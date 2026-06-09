@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Mark Percival, John Schult
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // DOM-test setup: registers jest-dom matchers (toBeInTheDocument, …) and
 // vitest-axe's toHaveNoViolations. Loaded only by the 'dom' vitest project.
 import { expect } from 'vitest';
