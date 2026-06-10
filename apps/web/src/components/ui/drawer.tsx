@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 shadcn
+//
+// SPDX-License-Identifier: MIT
+
 import type * as React from 'react';
 import { Drawer as DrawerPrimitive } from 'vaul';
 

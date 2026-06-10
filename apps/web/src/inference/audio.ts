@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Mark Percival, John Schult
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Decode a WAV data URI (from morse-audio) to mono Float32 audio at 8000 Hz.
 
 import { DSP_SAMPLE_RATE } from './dsp';

@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Mark Percival, John Schult
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Prerender the SPA's crawlable routes to static HTML, and emit sitemap.xml +
 // robots.txt — the SEO completion step for a client-rendered app.
 //

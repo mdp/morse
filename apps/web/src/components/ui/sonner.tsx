@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 shadcn
+//
+// SPDX-License-Identifier: MIT
+
 import { Toaster as Sonner, type ToasterProps } from 'sonner';
 import { useTheme } from '@/lib/use-theme';
 

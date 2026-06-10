@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Mark Percival, John Schult
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // Avoid pulling in onnxruntime-web just to test the cache helper.

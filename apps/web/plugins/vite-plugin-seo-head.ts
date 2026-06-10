@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type { Plugin } from 'vite';
-import { SITE_DESCRIPTION, SITE_NAME, SITE_TITLE } from './src/lib/site';
+import { SITE_DESCRIPTION, SITE_NAME, SITE_TITLE } from '../src/lib/site';
 
 /**
  * Injects the SITE-WIDE head tags into index.html at build/dev time:

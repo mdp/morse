@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Mark Percival, John Schult
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Full-sequence CWNet inference. The ONNX graph is traced at a fixed envelope
 // length (MAX_FRAMES); clients zero-pad shorter audio and trim the output.
 

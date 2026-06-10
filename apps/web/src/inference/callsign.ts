@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Mark Percival, John Schult
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Random amateur-radio callsign generator, weighted by region.
 //
 // The Beat-the-Bot demo plays callsigns specifically (not random alphanumeric

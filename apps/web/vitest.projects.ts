@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Mark Percival, John Schult
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import path from 'node:path';
 import react from '@vitejs/plugin-react';
 import type { TestProjectConfiguration } from 'vitest/config';

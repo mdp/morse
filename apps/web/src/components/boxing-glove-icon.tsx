@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2026 Mark Percival, John Schult
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 // Boxing-glove mark for "Beat the Bot" (nav + Next round). Single-path glove
 // (SVG Repo, CC0), recolored to currentColor so it inherits text color and
 // sizes via className like a lucide icon.

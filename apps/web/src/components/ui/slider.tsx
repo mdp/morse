@@ -1,3 +1,7 @@
+// SPDX-FileCopyrightText: 2023 shadcn
+//
+// SPDX-License-Identifier: MIT
+
 import { Slider as SliderPrimitive } from 'radix-ui';
 import * as React from 'react';
 
