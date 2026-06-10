@@ -8,8 +8,8 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig, loadEnv } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { seoHead } from './plugins/vite-plugin-seo-head';
 import { SITE_DESCRIPTION, SITE_TITLE } from './src/lib/site';
-import { seoHead } from './vite-plugin-seo-head';
 
 // Opt-in HTTPS for LAN / on-device PWA testing: service workers need a secure
 // context, which a plain http://<lan-ip> origin isn't. Drop an mkcert-issued

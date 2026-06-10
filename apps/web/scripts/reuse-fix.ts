@@ -25,6 +25,7 @@ const srcFiles = (await collect('src/**/*.{ts,tsx}')).filter(
   (f) => !f.startsWith('src/components/ui/')
 );
 const scriptFiles = await collect('scripts/**/*.ts');
+const pluginFiles = await collect('plugins/**/*.ts');
 const rootFiles = await collect('*.ts');
 const uiFiles = await collect('src/components/ui/*.tsx');
 
@@ -37,7 +38,7 @@ await annotate(
     '--year',
     year,
   ],
-  [...srcFiles, ...scriptFiles, ...rootFiles]
+  [...srcFiles, ...scriptFiles, ...pluginFiles, ...rootFiles]
 );
 
 await annotate(
